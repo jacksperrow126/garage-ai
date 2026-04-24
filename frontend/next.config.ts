@@ -1,4 +1,7 @@
+import createNextIntlPlugin from "next-intl/plugin";
 import type { NextConfig } from "next";
+
+const withNextIntl = createNextIntlPlugin("./src/i18n/config.ts");
 
 /**
  * App Hosting serves the Next.js app; /api/** and /mcp/** are proxied to the
@@ -15,9 +18,6 @@ const nextConfig: NextConfig = {
       { source: "/mcp/:path*", destination: `${api}/mcp/:path*` },
     ];
   },
-  experimental: {
-    typedRoutes: true,
-  },
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);

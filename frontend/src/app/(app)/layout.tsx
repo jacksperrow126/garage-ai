@@ -1,24 +1,11 @@
-"use client";
-
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
-
 import { Nav } from "@/components/Nav";
-import { useAuth } from "@/hooks/useAuth";
 
+/**
+ * TEMPORARY: auth is dropped for local dev. All routes are open; the
+ * frontend authenticates to the backend via `X-API-Key` in src/lib/api.ts.
+ * Re-enable Firebase Auth per docs/RESUME.md before any deploy.
+ */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!loading && !user) router.replace("/login");
-  }, [loading, user, router]);
-
-  if (loading) {
-    return <div className="p-8 text-slate-500">Loading...</div>;
-  }
-  if (!user) return null;
-
   return (
     <>
       <Nav />

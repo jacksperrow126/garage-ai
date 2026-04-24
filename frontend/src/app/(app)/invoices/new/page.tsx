@@ -34,10 +34,10 @@ export default function NewInvoicePage() {
     return { revenue };
   }, [lines]);
 
-  const create = useMutation({
+  const create = useMutation<{ id: string }>({
     mutationFn: () => {
       if (type === "import") {
-        return api.post("/invoices", {
+        return api.post<{ id: string }>("/invoices", {
           type: "import",
           supplier_name: supplierName || null,
           items: lines
@@ -50,7 +50,7 @@ export default function NewInvoicePage() {
           notes,
         });
       }
-      return api.post("/invoices", {
+      return api.post<{ id: string }>("/invoices", {
         type: "service",
         customer_name: customerName || null,
         items: lines.map((l) => ({
@@ -62,7 +62,7 @@ export default function NewInvoicePage() {
         notes,
       });
     },
-    onSuccess: (inv: { id: string }) => router.replace(`/invoices/${inv.id}`),
+    onSuccess: (inv) => router.replace(`/invoices/${inv.id}`),
   });
 
   function updateLine(idx: number, patch: Partial<Line>) {

@@ -1,11 +1,10 @@
 "use client";
 
-import { signOut } from "firebase/auth";
 import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
-import { firebaseAuth } from "@/lib/firebase";
+import { LOCALE_COOKIE } from "@/i18n/shared";
 
 const items = [
   { href: "/", key: "dashboard" as const },
@@ -22,13 +21,10 @@ export function Nav() {
   const locale = useLocale();
   const router = useRouter();
 
-  async function logout() {
-    await signOut(firebaseAuth());
-    router.replace("/login");
-  }
-
-  function otherLocale(): string {
-    return locale === "vi" ? "/en" : "/";
+  function toggleLocale() {
+    const next = locale === "vi" ? "en" : "vi";
+    document.cookie = `${LOCALE_COOKIE}=${next}; path=/; max-age=${60 * 60 * 24 * 365}`;
+    router.refresh();
   }
 
   return (
@@ -39,7 +35,8 @@ export function Nav() {
         </Link>
         <ul className="flex-1 flex items-center gap-1 overflow-x-auto text-sm">
           {items.map((it) => {
-            const active = pathname === it.href || (it.href !== "/" && pathname.startsWith(it.href));
+            const active =
+              pathname === it.href || (it.href !== "/" && pathname.startsWith(it.href));
             return (
               <li key={it.key}>
                 <Link
@@ -54,17 +51,11 @@ export function Nav() {
             );
           })}
         </ul>
-        <Link
-          href={otherLocale()}
+        <button
+          onClick={toggleLocale}
           className="text-sm text-slate-600 hover:underline"
         >
           {locale === "vi" ? "EN" : "VI"}
-        </Link>
-        <button
-          onClick={logout}
-          className="text-sm text-slate-600 hover:underline"
-        >
-          {t("logout")}
         </button>
       </div>
     </nav>
