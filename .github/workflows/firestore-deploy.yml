@@ -1,0 +1,49 @@
+name: Deploy Firestore rules + indexes
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'firestore.rules'
+      - 'firestore.indexes.json'
+      - 'firebase.json'
+      - '.github/workflows/firestore-deploy.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: firestore-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        name: Authenticate to Google Cloud via WIF
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/969667367100/locations/global/workloadIdentityPools/github-wif-pool/providers/github
+          service_account: github-actions-deployer@garage-manager-ai.iam.gserviceaccount.com
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Deploy Firestore rules + indexes
+        # firebase-tools picks up credentials from GOOGLE_APPLICATION_CREDENTIALS,
+        # which google-github-actions/auth writes. Index-build is async on
+        # Firestore's side; this command just enqueues the change.
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+        run: |
+          npx --yes firebase-tools@latest deploy \
+            --only firestore:rules,firestore:indexes \
+            --project garage-manager-ai \
+            --non-interactive
