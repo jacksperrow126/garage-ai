@@ -29,6 +29,8 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  # NEXT_PUBLIC_FIREBASE_API_KEY is public web-SDK config (ships to
-  # browsers) but we still set it via Firebase console → App Hosting →
-  # Environment so it can be rotated without a redeploy.
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: AIzaSyA0RZ9f_cx96ghVIHKr7kqkVoSDZ4TC8T0
+    availability:
+      - BUILD
+      - RUNTIME
