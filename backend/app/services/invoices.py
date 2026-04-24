@@ -18,6 +18,7 @@ garage, but worth knowing. See tests/test_invoices.py for drift bounds.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -162,10 +163,10 @@ def create_import_invoice(data: ImportInvoiceCreate, principal: Principal) -> di
                 actor=actor,
             )
 
+        now = datetime.now(UTC)
         invoice_doc = {
             "type": "import",
             "status": "posted",
-            "created_at": server_timestamp(),
             "created_by": actor,
             "supplier_id": data.supplier_id,
             "supplier_name": data.supplier_name,
@@ -177,7 +178,7 @@ def create_import_invoice(data: ImportInvoiceCreate, principal: Principal) -> di
             "profit": None,
             "notes": data.notes,
         }
-        tx.set(invoice_ref, invoice_doc)
+        tx.set(invoice_ref, {**invoice_doc, "created_at": server_timestamp()})
 
         audit.log(
             "create_import_invoice",
@@ -187,7 +188,7 @@ def create_import_invoice(data: ImportInvoiceCreate, principal: Principal) -> di
             tx=tx,
         )
 
-        return {"id": invoice_ref.id, **invoice_doc}
+        return {"id": invoice_ref.id, **invoice_doc, "created_at": now}
 
     return _tx(db.transaction())
 
@@ -300,10 +301,10 @@ def create_service_invoice(data: ServiceInvoiceCreate, principal: Principal) -> 
                 actor=actor,
             )
 
+        now = datetime.now(UTC)
         invoice_doc = {
             "type": "service",
             "status": "posted",
-            "created_at": server_timestamp(),
             "created_by": actor,
             "supplier_id": None,
             "supplier_name": None,
@@ -315,7 +316,7 @@ def create_service_invoice(data: ServiceInvoiceCreate, principal: Principal) -> 
             "profit": total_revenue - total_cost,
             "notes": data.notes,
         }
-        tx.set(invoice_ref, invoice_doc)
+        tx.set(invoice_ref, {**invoice_doc, "created_at": server_timestamp()})
 
         audit.log(
             "create_service_invoice",
@@ -332,7 +333,7 @@ def create_service_invoice(data: ServiceInvoiceCreate, principal: Principal) -> 
             },
             tx=tx,
         )
-        return {"id": invoice_ref.id, **invoice_doc}
+        return {"id": invoice_ref.id, **invoice_doc, "created_at": now}
 
     return _tx(db.transaction())
 
@@ -359,6 +360,7 @@ def create_adjustment(
         if not snap.exists:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "invoice not found")
 
+        now = datetime.now(UTC)
         adj_doc = {
             "invoice_id": invoice_id,
             "type": adj_type,
@@ -366,10 +368,9 @@ def create_adjustment(
             "delta_revenue": 0,
             "delta_cost": 0,
             "delta_profit": None,
-            "created_at": server_timestamp(),
             "created_by": actor,
         }
-        tx.set(adj_ref, adj_doc)
+        tx.set(adj_ref, {**adj_doc, "created_at": server_timestamp()})
         tx.update(inv_ref, {"status": "adjusted"})
 
         audit.log(
@@ -379,6 +380,6 @@ def create_adjustment(
             result={"adjustment_id": adj_ref.id},
             tx=tx,
         )
-        return {"id": adj_ref.id, **adj_doc}
+        return {"id": adj_ref.id, **adj_doc, "created_at": now}
 
     return _tx(db.transaction())

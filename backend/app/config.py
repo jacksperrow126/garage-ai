@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_env: Literal["local", "staging", "prod"] = "local"
-    google_cloud_project: str = "garage-ai"
+    google_cloud_project: str = "garage-manager-ai"
 
     # Comma-separated origins; parsed into a list on access
     admin_origins: str = "http://localhost:3000"

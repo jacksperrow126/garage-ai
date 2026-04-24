@@ -11,7 +11,7 @@ Sku = Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, min
 
 class ProductCreate(BaseModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
-    sku: Sku
+    sku: Sku | None = None
     selling_price: VndInt
 
 

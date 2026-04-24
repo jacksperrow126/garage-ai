@@ -46,28 +46,49 @@ export default function Dashboard() {
   });
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-semibold">{t("today")}</h1>
+    <div className="space-y-8">
+      <header className="flex items-end justify-between gap-4">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
+            {t("today")}
+          </p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">
+            {new Date().toLocaleDateString(undefined, {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+            })}
+          </h1>
+        </div>
+      </header>
 
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label={t("revenue")} value={formatVnd(daily.data?.total_revenue ?? 0)} />
         <StatCard label={t("cost")} value={formatVnd(daily.data?.total_cost ?? 0)} />
         <StatCard label={t("profit")} value={formatVnd(daily.data?.profit ?? 0)} emphasize />
         <StatCard label={t("invoiceCount")} value={String(daily.data?.invoice_count ?? 0)} />
       </section>
 
-      <section className="grid md:grid-cols-2 gap-6">
+      <section className="grid md:grid-cols-2 gap-5">
         <Panel title={t("lowStock")}>
           {lowStock.data?.length === 0 && (
-            <p className="text-sm text-slate-500">—</p>
+            <p className="text-sm text-slate-400">—</p>
           )}
           <ul className="divide-y divide-slate-100">
             {lowStock.data?.map((p) => (
-              <li key={p.id} className="py-2 flex justify-between">
-                <span className="text-slate-800">
-                  {p.name} <span className="text-slate-400">· {p.sku}</span>
+              <li
+                key={p.id}
+                className="py-2.5 flex items-center justify-between gap-3"
+              >
+                <span className="text-slate-800 truncate">
+                  {p.name}{" "}
+                  <span className="font-mono text-xs text-slate-400">
+                    · {p.sku}
+                  </span>
                 </span>
-                <span className="font-mono text-sm text-amber-700">{p.quantity}</span>
+                <span className="shrink-0 rounded-full bg-amber-50 text-amber-700 px-2 py-0.5 font-mono text-xs font-medium">
+                  {p.quantity}
+                </span>
               </li>
             ))}
           </ul>
@@ -76,15 +97,20 @@ export default function Dashboard() {
         <Panel title={t("recentInvoices")}>
           <ul className="divide-y divide-slate-100">
             {recent.data?.map((inv) => (
-              <li key={inv.id} className="py-2 flex justify-between text-sm">
-                <span>
-                  <span className="text-slate-400 mr-2">
+              <li
+                key={inv.id}
+                className="py-2.5 flex items-center justify-between gap-3 text-sm"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="text-slate-400 mr-2 text-xs tabular-nums">
                     {formatDate(inv.created_at)}
                   </span>
-                  {inv.customer_name || inv.supplier_name || "—"}{" "}
-                  <span className="text-slate-400">· {inv.type}</span>
+                  <span className="text-slate-800">
+                    {inv.customer_name || inv.supplier_name || "—"}
+                  </span>{" "}
+                  <span className="text-slate-400 text-xs">· {inv.type}</span>
                 </span>
-                <span className="font-mono">
+                <span className="font-mono tabular-nums text-slate-700">
                   {formatVnd(inv.profit ?? inv.total_revenue)}
                 </span>
               </li>
@@ -105,24 +131,37 @@ function StatCard({
   value: string;
   emphasize?: boolean;
 }) {
+  if (emphasize) {
+    return (
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-600 to-brand-800 p-5 text-white shadow-lg shadow-brand-600/20 ring-1 ring-white/10">
+        <div className="absolute -right-8 -top-8 size-32 rounded-full bg-white/10 blur-2xl" />
+        <div className="relative text-[11px] font-medium uppercase tracking-wider text-brand-100">
+          {label}
+        </div>
+        <div className="relative mt-2 text-xl font-semibold tabular-nums">
+          {value}
+        </div>
+      </div>
+    );
+  }
   return (
-    <div
-      className={`rounded-xl p-4 ${
-        emphasize ? "bg-slate-900 text-white" : "bg-white"
-      } shadow-sm`}
-    >
-      <div className={`text-xs ${emphasize ? "text-slate-300" : "text-slate-500"}`}>
+    <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-200/60 shadow-sm">
+      <div className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
         {label}
       </div>
-      <div className="text-lg font-semibold mt-1">{value}</div>
+      <div className="mt-2 text-xl font-semibold tabular-nums text-slate-900">
+        {value}
+      </div>
     </div>
   );
 }
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl bg-white p-4 shadow-sm">
-      <h2 className="text-sm font-medium text-slate-500 mb-2">{title}</h2>
+    <div className="rounded-2xl bg-white p-5 ring-1 ring-slate-200/60 shadow-sm">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
+        {title}
+      </h2>
       {children}
     </div>
   );

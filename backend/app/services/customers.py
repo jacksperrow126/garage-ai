@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -17,10 +18,10 @@ def _ref(customer_id: str) -> firestore.DocumentReference:
 
 def create(data: CustomerCreate, principal: Principal) -> dict[str, Any]:
     ref = get_db().collection("customers").document()
-    doc = {**data.model_dump(), "created_at": server_timestamp()}
-    ref.set(doc)
+    now = datetime.now(UTC)
+    ref.set({**data.model_dump(), "created_at": server_timestamp()})
     audit.log("create_customer", principal.audit_actor, payload=data.model_dump(), result={"id": ref.id})
-    return {"id": ref.id, **doc}
+    return {"id": ref.id, **data.model_dump(), "created_at": now}
 
 
 def get(customer_id: str) -> dict[str, Any] | None:

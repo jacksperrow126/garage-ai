@@ -13,11 +13,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps first so code changes don't bust the layer cache
+# Hatch needs the `app/` package present to build the wheel, so copy
+# pyproject.toml + app together before `pip install .`. Any app-code
+# change invalidates the dep layer; for a tiny service this is fine.
 COPY pyproject.toml ./
-RUN pip install --upgrade pip && pip install .
-
 COPY app ./app
+RUN pip install --upgrade pip && pip install .
 
 # Cloud Run listens on $PORT. Uvicorn binds to it directly.
 ENV PORT=8080

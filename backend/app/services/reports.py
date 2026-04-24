@@ -31,10 +31,12 @@ def _month_range_utc(year: int, month: int) -> tuple[datetime, datetime]:
 
 
 def _service_invoices_in(start: datetime, end: datetime) -> list[dict[str, Any]]:
+    # Include both posted and adjusted — an adjustment is a record of change,
+    # not a reversal. The revenue still happened; reports must still show it.
     col = get_db().collection("invoices")
     q = (
         col.where("type", "==", "service")
-        .where("status", "==", "posted")
+        .where("status", "in", ["posted", "adjusted"])
         .where("created_at", ">=", start)
         .where("created_at", "<", end)
     )

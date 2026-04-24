@@ -112,9 +112,12 @@ def search_customer(query: str) -> list[dict[str, Any]]:
 # ── Destructive tools (two-phase) ───────────────────────────────────────
 
 @mcp.tool()
-def add_product(name: str, sku: str, selling_price: int) -> dict[str, Any]:
-    """Propose creating a new product. Returns a preview_id — call
-    confirm_action(preview_id) to actually create."""
+def add_product(
+    name: str, selling_price: int, sku: str | None = None
+) -> dict[str, Any]:
+    """Propose creating a new product. SKU is optional — if omitted it's
+    auto-derived from the name at confirm time. Returns a preview_id —
+    call confirm_action(preview_id) to actually create."""
     data = ProductCreate(name=name, sku=sku, selling_price=selling_price)
     summary = {
         "what": "add_product",

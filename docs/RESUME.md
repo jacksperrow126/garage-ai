@@ -23,12 +23,16 @@ cp .env.local.example .env.local
 cd ..
 ```
 
-**Secrets to keep in sync locally** (must match across `.env` files):
+**Secrets / env to keep in sync locally:**
 
-| Var                         | Where           | Value             |
-|-----------------------------|-----------------|-------------------|
-| `OPENCLAW_API_KEY`          | `backend/.env`  | `dev-secret-key`  |
-| `NEXT_PUBLIC_API_KEY`       | `frontend/.env.local` | `dev-secret-key` |
+| Var                                       | Where                  | Value                       |
+|-------------------------------------------|------------------------|-----------------------------|
+| `OPENCLAW_API_KEY`                        | `backend/.env`         | `dev-secret-key` (MCP only) |
+| `NEXT_PUBLIC_FIREBASE_PROJECT_ID`         | `frontend/.env.local`  | `garage-ai-test`            |
+| `NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST` | `frontend/.env.local`  | `localhost:9099`            |
+
+The frontend authenticates to the backend with Firebase ID tokens —
+`OPENCLAW_API_KEY` is only used by the MCP server (OpenClaw agent).
 
 ## 2. Start everything (three terminals)
 
@@ -84,6 +88,9 @@ preview/confirm, MCP auth guard).
 
 ## 4. Smoke test the flow end-to-end
 
+These curls seed data through the **agent path** (`X-API-Key`). The browser
+path uses Firebase ID tokens — see §5.
+
 ```bash
 # Create a product
 curl -X POST http://127.0.0.1:8000/api/v1/products \
@@ -98,43 +105,52 @@ curl -X POST http://127.0.0.1:8000/api/v1/invoices \
 # Dashboard should now show this product; inventory page at http://127.0.0.1:3000/inventory
 ```
 
-## 5. ⚠️ Auth is currently dropped
+## 5. Auth
 
-Firebase Auth was removed from the frontend to unblock local dev. The
-frontend sends `X-API-Key: dev-secret-key` directly to the backend (via
-Next.js rewrite — same-origin, not cross-origin). This is NOT safe to
-deploy — in production the key would be shipped to browsers.
+Firebase Auth is wired up end-to-end. The frontend fetches an ID token via
+the Firebase SDK and sends `Authorization: Bearer <token>` to the backend;
+`require_user` / `require_agent_or_user` in `app/auth.py` verify with the
+Admin SDK.
 
-### What was removed (commit 2025-04-24)
-- `src/app/(auth)/login/page.tsx` — Google sign-in page
-- `src/hooks/useAuth.ts` — auth state hook
-- `src/lib/firebase.ts` — client Firebase SDK init
-- Auth gate in `src/app/(app)/layout.tsx`
-- Logout button in `src/components/Nav.tsx`
+### Local sign-in flow (with Auth emulator)
 
-### What remains (still useful)
-- Backend `require_user` and `require_agent_or_user` in `app/auth.py`
-- Backend `/api/v1/me` endpoint
-- `firebase` npm package still installed
-- Firebase Auth emulator still runs
+The Next.js app auto-connects to the Auth emulator when
+`NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST=localhost:9099` is set (default in
+`.env.local.example`).
 
-### Plan to re-enable
+1. Visit http://localhost:3000 → redirected to `/login`.
+2. Click "Sign in with Google". The emulator pops up a fake-Google dialog;
+   pick "Add new account", enter any email, and submit. The user is created
+   in the emulator.
+3. You land on `/` but API calls will 403 until the user has a role claim
+   (see below).
 
-1. Reinstall login + auth:
-   - `src/hooks/useAuth.ts` — subscribe to `onAuthStateChanged`
-   - `src/lib/firebase.ts` — initialize app from `NEXT_PUBLIC_FIREBASE_*` vars
-   - `src/app/(auth)/login/page.tsx` — Google sign-in (use emulator locally)
-   - Restore logout button in `Nav.tsx`
-2. Replace `X-API-Key` in `src/lib/api.ts` with `Authorization: Bearer <idToken>`
-3. Drop `NEXT_PUBLIC_API_KEY` from `.env.local.example` + `.env.local`
-4. Update `(app)/layout.tsx` to redirect to `/login` when not authenticated
-5. Locally: connect to Auth emulator via
-   `connectAuthEmulator(auth, "http://localhost:9099")` inside `firebase.ts`
-6. Production: populate `NEXT_PUBLIC_FIREBASE_*` env vars from Firebase
-   console → Project Settings → Web app
+### Grant an owner / manager role
 
-History preserved: the prior Firebase-integrated versions are in git at
-`49b01d2` (initial commit).
+The backend reads `role` from the token's custom claims (defaults to
+`manager` if missing — see `app/auth.py:41`). To promote yourself to
+`owner` against the emulator:
+
+```bash
+cd backend && source .venv/bin/activate
+FIREBASE_AUTH_EMULATOR_HOST=localhost:9099 \
+GOOGLE_CLOUD_PROJECT=garage-ai-test \
+python scripts/set_role.py --email you@example.com --role owner --project garage-ai-test
+```
+
+Then sign out and back in so the new token carries the updated claim.
+
+### Production rollout checklist
+
+- Populate `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`,
+  `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID` on
+  Firebase App Hosting (console → App Hosting → Environment). Leave
+  `NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST` **unset**.
+- In Firebase console → Authentication → Sign-in method, enable Google and
+  add the owner's email to the allowed list (or rely on role-claims alone).
+- Run `scripts/set_role.py` once against the real project (with
+  `GOOGLE_APPLICATION_CREDENTIALS` pointing at a service account) to grant
+  the owner role to the real account.
 
 ## 6. Quick checks
 

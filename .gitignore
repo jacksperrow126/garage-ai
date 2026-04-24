@@ -48,6 +48,7 @@ database-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 *~

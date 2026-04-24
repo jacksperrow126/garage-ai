@@ -1,14 +1,11 @@
+import { firebaseAuth } from "./firebase";
+
 /**
- * Thin fetch wrapper for the admin panel.
- *
- * TEMPORARY (local dev): we send `X-API-Key` taken from NEXT_PUBLIC_API_KEY
- * so the browser can talk to the backend without Firebase Auth. In
- * production this will switch to Firebase ID tokens via
- * `Authorization: Bearer <token>`. See docs/RESUME.md for the re-enable
- * plan.
+ * Thin fetch wrapper that attaches the current user's Firebase ID token.
+ * All API routes in the FastAPI backend accept `Authorization: Bearer <token>`.
  *
  * On App Hosting, `/api/**` is same-origin via the Next.js rewrite in
- * `next.config.ts`, so no CORS setup is needed.
+ * `next.config.ts`, so no CORS setup is needed in the browser.
  */
 
 export class ApiError extends Error {
@@ -17,15 +14,17 @@ export class ApiError extends Error {
   }
 }
 
-function devHeaders(): HeadersInit {
-  const key = process.env.NEXT_PUBLIC_API_KEY;
-  return key ? { "X-API-Key": key } : {};
+async function authHeaders(): Promise<HeadersInit> {
+  const user = firebaseAuth().currentUser;
+  if (!user) return {};
+  const token = await user.getIdToken();
+  return { Authorization: `Bearer ${token}` };
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = {
     "Content-Type": "application/json",
-    ...devHeaders(),
+    ...(await authHeaders()),
     ...(init.headers ?? {}),
   };
   const res = await fetch(`/api/v1${path}`, { ...init, headers });

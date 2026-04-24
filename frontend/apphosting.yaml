@@ -10,15 +10,25 @@ runConfig:
 
 env:
   - variable: NEXT_PUBLIC_API_URL
-    value: https://garage-ai-api-xxxxxx-as.a.run.app   # replace with your Cloud Run URL
+    value: https://garage-ai-api-969667367100.asia-southeast1.run.app
     availability:
       - BUILD
       - RUNTIME
   - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
-    value: garage-ai
+    value: garage-manager-ai
     availability:
       - BUILD
       - RUNTIME
-  # The rest (API_KEY, AUTH_DOMAIN, APP_ID) should be set via the Firebase
-  # console → App Hosting → Environment so they can be rotated without a
-  # redeploy. Mark them BUILD + RUNTIME availability.
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: garage-manager-ai.firebaseapp.com
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: 1:969667367100:web:a5a24a3242323e3e3300b9
+    availability:
+      - BUILD
+      - RUNTIME
+  # NEXT_PUBLIC_FIREBASE_API_KEY is public web-SDK config (ships to
+  # browsers) but we still set it via Firebase console → App Hosting →
+  # Environment so it can be rotated without a redeploy.

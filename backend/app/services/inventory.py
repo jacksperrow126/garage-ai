@@ -8,6 +8,8 @@ and will appear in audit_logs as action="manual_correction"."""
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,35 +27,63 @@ def _product_ref(sku: str) -> firestore.DocumentReference:
     return get_db().collection("products").document(sku)
 
 
+def _sku_base_from_name(name: str) -> str:
+    """Strip Vietnamese diacritics, keep A-Z0-9, uppercase, cap at 20 chars.
+    "Dầu nhớt 5W-30" → "DAUNHOT5W30". Fallback "PRODUCT" if empty."""
+    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    base = re.sub(r"[^A-Za-z0-9]", "", ascii_name).upper()[:20]
+    return base or "PRODUCT"
+
+
 def create_product(data: ProductCreate, principal: Principal) -> dict[str, Any]:
-    ref = _product_ref(data.sku)
     actor = principal.audit_actor
+    base = _sku_base_from_name(data.name) if data.sku is None else data.sku
 
     @firestore.transactional
     def _tx(tx: firestore.Transaction) -> dict[str, Any]:
-        snap = ref.get(transaction=tx)
-        if snap.exists:
-            raise HTTPException(status.HTTP_409_CONFLICT, f"SKU {data.sku} already exists")
+        # If the caller passed an explicit SKU, a collision is an error.
+        # If we're auto-deriving, probe suffixed candidates until free.
+        if data.sku is not None:
+            sku = data.sku
+            ref = _product_ref(sku)
+            if ref.get(transaction=tx).exists:
+                raise HTTPException(status.HTTP_409_CONFLICT, f"SKU {sku} already exists")
+        else:
+            sku = base
+            for n in range(2, 100):
+                ref = _product_ref(sku)
+                if not ref.get(transaction=tx).exists:
+                    break
+                suffix = f"-{n:02d}"
+                sku = f"{base[: 20 - len(suffix)]}{suffix}"
+            else:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, "could not derive a unique SKU from name"
+                )
+            ref = _product_ref(sku)
+
+        now = datetime.now(UTC)
         doc = {
             "name": data.name,
-            "sku": data.sku,
+            "sku": sku,
             "quantity": 0,
             "selling_price": data.selling_price,
             "average_cost": 0,
             "last_import_price": 0,
             "active": True,
-            "created_at": server_timestamp(),
-            "updated_at": server_timestamp(),
         }
-        tx.set(ref, doc)
+        # Firestore gets the authoritative server time via sentinels; the
+        # dict we return to the HTTP layer uses a real datetime so pydantic
+        # can serialize it (sentinels are not JSON-encodable).
+        tx.set(ref, {**doc, "created_at": server_timestamp(), "updated_at": server_timestamp()})
         audit.log(
             "add_product",
             actor,
-            payload=data.model_dump(),
-            result={"sku": data.sku},
+            payload={**data.model_dump(), "sku": sku},
+            result={"sku": sku},
             tx=tx,
         )
-        return {"id": data.sku, **doc}
+        return {"id": sku, **doc, "created_at": now, "updated_at": now}
 
     return _tx(get_db().transaction())
 
@@ -64,14 +94,14 @@ def update_product(sku: str, data: ProductUpdate, principal: Principal) -> dict[
     updates = data.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no fields to update")
-    updates["updated_at"] = server_timestamp()
+    now = datetime.now(UTC)
 
     @firestore.transactional
     def _tx(tx: firestore.Transaction) -> dict[str, Any]:
         snap = ref.get(transaction=tx)
         if not snap.exists:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "product not found")
-        tx.update(ref, updates)
+        tx.update(ref, {**updates, "updated_at": server_timestamp()})
         audit.log(
             "update_product",
             actor,
@@ -79,7 +109,7 @@ def update_product(sku: str, data: ProductUpdate, principal: Principal) -> dict[
             result={"sku": sku},
             tx=tx,
         )
-        return {"id": sku, **(snap.to_dict() or {}), **updates}
+        return {"id": sku, **(snap.to_dict() or {}), **updates, "updated_at": now}
 
     return _tx(get_db().transaction())
 

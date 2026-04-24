@@ -16,7 +16,10 @@
     "login": "Sign in",
     "email": "Email",
     "password": "Password",
-    "signInWithGoogle": "Sign in with Google"
+    "signInWithGoogle": "Sign in with Google",
+    "enter": "Enter dashboard",
+    "enterHint": "Continue to your garage overview.",
+    "devNotice": "Google sign-in is disabled during development."
   },
   "dashboard": {
     "today": "Today",
