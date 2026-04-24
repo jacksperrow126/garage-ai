@@ -1,0 +1,96 @@
+{
+  "app": {
+    "title": "Garage AI",
+    "tagline": "Simple garage management"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "inventory": "Inventory",
+    "invoices": "Invoices",
+    "customers": "Customers",
+    "suppliers": "Suppliers",
+    "reports": "Reports",
+    "logout": "Sign out"
+  },
+  "auth": {
+    "login": "Sign in",
+    "email": "Email",
+    "password": "Password",
+    "signInWithGoogle": "Sign in with Google"
+  },
+  "dashboard": {
+    "today": "Today",
+    "revenue": "Revenue",
+    "cost": "Cost",
+    "profit": "Profit",
+    "invoiceCount": "Invoices",
+    "lowStock": "Low stock",
+    "recentInvoices": "Recent invoices"
+  },
+  "inventory": {
+    "title": "Inventory",
+    "addProduct": "Add product",
+    "searchPlaceholder": "Search name or SKU...",
+    "sku": "SKU",
+    "name": "Name",
+    "quantity": "Qty",
+    "sellingPrice": "Selling price",
+    "avgCost": "Avg cost",
+    "lowStockOnly": "Low-stock only"
+  },
+  "invoices": {
+    "title": "Invoices",
+    "new": "New invoice",
+    "type": "Type",
+    "import": "Import",
+    "service": "Service / sale",
+    "customer": "Customer",
+    "supplier": "Supplier",
+    "totalRevenue": "Revenue",
+    "totalCost": "Cost",
+    "profit": "Profit",
+    "status": "Status",
+    "posted": "Posted",
+    "adjusted": "Adjusted",
+    "addItem": "Add item",
+    "addLabor": "Add labor",
+    "description": "Description",
+    "quantity": "Quantity",
+    "unitPrice": "Unit price",
+    "submit": "Save invoice",
+    "confirmCreate": "Confirm?",
+    "notes": "Notes",
+    "adjustments": "Adjustments"
+  },
+  "customers": {
+    "title": "Customers",
+    "add": "Add customer",
+    "name": "Name",
+    "phone": "Phone",
+    "vehicles": "Vehicles",
+    "history": "History"
+  },
+  "suppliers": {
+    "title": "Suppliers",
+    "add": "Add supplier",
+    "name": "Name",
+    "phone": "Phone",
+    "address": "Address"
+  },
+  "reports": {
+    "title": "Reports",
+    "daily": "Daily",
+    "monthly": "Monthly",
+    "topProducts": "Top products"
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "confirm": "Confirm",
+    "back": "Back"
+  }
+}

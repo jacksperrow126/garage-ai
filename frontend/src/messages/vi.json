@@ -1,0 +1,96 @@
+{
+  "app": {
+    "title": "Garage AI",
+    "tagline": "Quản lý garage đơn giản"
+  },
+  "nav": {
+    "dashboard": "Tổng quan",
+    "inventory": "Kho hàng",
+    "invoices": "Hóa đơn",
+    "customers": "Khách hàng",
+    "suppliers": "Nhà cung cấp",
+    "reports": "Báo cáo",
+    "logout": "Đăng xuất"
+  },
+  "auth": {
+    "login": "Đăng nhập",
+    "email": "Email",
+    "password": "Mật khẩu",
+    "signInWithGoogle": "Đăng nhập bằng Google"
+  },
+  "dashboard": {
+    "today": "Hôm nay",
+    "revenue": "Doanh thu",
+    "cost": "Chi phí",
+    "profit": "Lợi nhuận",
+    "invoiceCount": "Số hóa đơn",
+    "lowStock": "Sắp hết hàng",
+    "recentInvoices": "Hóa đơn gần đây"
+  },
+  "inventory": {
+    "title": "Kho hàng",
+    "addProduct": "Thêm sản phẩm",
+    "searchPlaceholder": "Tìm tên hoặc SKU...",
+    "sku": "SKU",
+    "name": "Tên",
+    "quantity": "SL",
+    "sellingPrice": "Giá bán",
+    "avgCost": "Giá vốn TB",
+    "lowStockOnly": "Chỉ hàng sắp hết"
+  },
+  "invoices": {
+    "title": "Hóa đơn",
+    "new": "Tạo hóa đơn",
+    "type": "Loại",
+    "import": "Nhập hàng",
+    "service": "Bán / Sửa chữa",
+    "customer": "Khách hàng",
+    "supplier": "Nhà cung cấp",
+    "totalRevenue": "Doanh thu",
+    "totalCost": "Giá vốn",
+    "profit": "Lợi nhuận",
+    "status": "Trạng thái",
+    "posted": "Đã chốt",
+    "adjusted": "Đã điều chỉnh",
+    "addItem": "Thêm dòng",
+    "addLabor": "Thêm công",
+    "description": "Mô tả",
+    "quantity": "Số lượng",
+    "unitPrice": "Đơn giá",
+    "submit": "Lưu hóa đơn",
+    "confirmCreate": "Xác nhận tạo?",
+    "notes": "Ghi chú",
+    "adjustments": "Điều chỉnh"
+  },
+  "customers": {
+    "title": "Khách hàng",
+    "add": "Thêm khách hàng",
+    "name": "Tên",
+    "phone": "Số điện thoại",
+    "vehicles": "Xe",
+    "history": "Lịch sử"
+  },
+  "suppliers": {
+    "title": "Nhà cung cấp",
+    "add": "Thêm nhà cung cấp",
+    "name": "Tên",
+    "phone": "Số điện thoại",
+    "address": "Địa chỉ"
+  },
+  "reports": {
+    "title": "Báo cáo",
+    "daily": "Theo ngày",
+    "monthly": "Theo tháng",
+    "topProducts": "Sản phẩm bán chạy"
+  },
+  "common": {
+    "loading": "Đang tải...",
+    "error": "Có lỗi xảy ra",
+    "retry": "Thử lại",
+    "cancel": "Hủy",
+    "save": "Lưu",
+    "delete": "Xóa",
+    "confirm": "Xác nhận",
+    "back": "Quay lại"
+  }
+}

@@ -1,0 +1,24 @@
+# Firebase App Hosting config.
+# https://firebase.google.com/docs/app-hosting/configure
+
+runConfig:
+  minInstances: 0
+  maxInstances: 3
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 512
+
+env:
+  - variable: NEXT_PUBLIC_API_URL
+    value: https://garage-ai-api-xxxxxx-as.a.run.app   # replace with your Cloud Run URL
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: garage-ai
+    availability:
+      - BUILD
+      - RUNTIME
+  # The rest (API_KEY, AUTH_DOMAIN, APP_ID) should be set via the Firebase
+  # console → App Hosting → Environment so they can be rotated without a
+  # redeploy. Mark them BUILD + RUNTIME availability.
