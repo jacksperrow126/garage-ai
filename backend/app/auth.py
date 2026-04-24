@@ -1,3 +1,4 @@
+import hmac
 from dataclasses import dataclass
 from typing import Literal
 
@@ -74,7 +75,18 @@ async def require_agent_or_user(
     x_api_key: str | None = Header(default=None),
     settings: Settings = Depends(get_settings),
 ) -> Principal:
-    """Accepts EITHER a Firebase ID token OR an X-API-Key (for OpenClaw)."""
+    """Accepts any of:
+    - `X-API-Key: <openclaw-key>`                  → agent (OpenClaw, X-API-Key shim)
+    - `Authorization: Bearer <openclaw-key>`       → agent (MCP / Anthropic native)
+    - `Authorization: Bearer <firebase-id-token>`  → user (admin panel)
+    """
     if x_api_key:
         return _verify_api_key(x_api_key, settings)
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1]
+        # Agent-key check first: constant-time compare avoids leaking key
+        # contents via timing. A 64-char hex never looks like a JWT, so we
+        # can short-circuit without touching firebase-admin.
+        if hmac.compare_digest(token, settings.openclaw_api_key):
+            return Principal(actor="agent", uid="openclaw", role="manager")
     return _verify_firebase_token(authorization)
