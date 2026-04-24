@@ -38,14 +38,34 @@ def test_mcp_requires_api_key(client: TestClient) -> None:
     assert r.status_code == 401
 
 
-def test_mcp_accepts_bearer_api_key(client: TestClient) -> None:
+def test_mcp_middleware_accepts_bearer_api_key() -> None:
     """Claude Desktop via mcp-remote + Anthropic native MCP both send the
-    key as Authorization: Bearer. Must pass the MCP middleware, not 401."""
-    r = client.get("/mcp/", headers={"Authorization": "Bearer test-key"})
-    # A 200/400/405/406 all mean auth passed and MCP itself answered.
-    # The exact code depends on Streamable HTTP protocol negotiation on a
-    # GET; anything other than 401 proves the auth layer let us through.
-    assert r.status_code != 401
+    key as Authorization: Bearer. The ApiKeyMiddleware must not 401 on
+    those requests. Tested against a stub inner app so we don't depend
+    on MCP's async lifespan init."""
+    from starlette.applications import Starlette
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+    from fastapi.testclient import TestClient as StarletteClient
+
+    async def ok(_req):
+        return JSONResponse({"ok": True})
+
+    os.environ["OPENCLAW_API_KEY"] = "test-key"
+    from app.mcp_server import ApiKeyMiddleware
+
+    # Clear settings cache so it re-reads OPENCLAW_API_KEY.
+    from app.config import get_settings
+    get_settings.cache_clear()
+
+    inner = Starlette(routes=[Route("/probe", ok, methods=["GET"])])
+    wrapped = ApiKeyMiddleware(inner)
+    c = StarletteClient(wrapped)
+
+    assert c.get("/probe").status_code == 401  # no auth at all
+    assert c.get("/probe", headers={"X-API-Key": "test-key"}).status_code == 200
+    assert c.get("/probe", headers={"Authorization": "Bearer test-key"}).status_code == 200
+    assert c.get("/probe", headers={"Authorization": "Bearer wrong"}).status_code == 401
 
 
 def test_bearer_api_key_accepted_on_agent_routes(client: TestClient) -> None:

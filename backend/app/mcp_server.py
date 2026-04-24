@@ -45,7 +45,11 @@ from app.services import (
 
 AGENT = Principal(actor="agent", uid="openclaw", role="manager")
 
-mcp = FastMCP("garage-ai")
+# FastMCP defaults to serving Streamable HTTP at `/mcp`. We mount it on
+# FastAPI under `/mcp` too, so without this override the external URL
+# would be `/mcp/mcp` (fatal footgun — most MCP clients POST to `/mcp/`
+# and get a 404). Override to serve at the mount root.
+mcp = FastMCP("garage-ai", streamable_http_path="/")
 
 
 # ── Read-only tools ─────────────────────────────────────────────────────
