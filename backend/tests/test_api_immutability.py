@@ -38,6 +38,16 @@ def test_mcp_requires_api_key(client: TestClient) -> None:
     assert r.status_code == 401
 
 
+def test_mcp_accepts_bearer_api_key(client: TestClient) -> None:
+    """Claude Desktop via mcp-remote + Anthropic native MCP both send the
+    key as Authorization: Bearer. Must pass the MCP middleware, not 401."""
+    r = client.get("/mcp/", headers={"Authorization": "Bearer test-key"})
+    # A 200/400/405/406 all mean auth passed and MCP itself answered.
+    # The exact code depends on Streamable HTTP protocol negotiation on a
+    # GET; anything other than 401 proves the auth layer let us through.
+    assert r.status_code != 401
+
+
 def test_bearer_api_key_accepted_on_agent_routes(client: TestClient) -> None:
     """OpenClaw / Anthropic Messages API-native MCP want Authorization:
     Bearer <api-key>. That must auth the same as X-API-Key."""

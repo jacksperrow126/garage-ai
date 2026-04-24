@@ -208,16 +208,24 @@ def confirm_action(preview_id: str) -> dict[str, Any]:
 # ── ASGI middleware: API key enforcement ────────────────────────────────
 
 class ApiKeyMiddleware(BaseHTTPMiddleware):
-    """Every /mcp/** request must carry a valid X-API-Key header.
+    """Every /mcp/** request must authenticate as the agent. Accept either:
+    - `X-API-Key: <key>`              (OpenClaw's shim)
+    - `Authorization: Bearer <key>`   (Claude Desktop / mcp-remote / Anthropic
+                                       native MCP — the standard MCP auth)
 
-    MCP spec permits several auth styles; we pick API-key because OpenClaw is
-    the only client and it fits the 'service account' model. The key is
-    injected into Cloud Run via Secret Manager.
+    Constant-time compare avoids leaking key contents via timing.
     """
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[no-untyped-def, override]
+        import hmac
+
         expected = get_settings().openclaw_api_key
-        if request.headers.get("x-api-key") != expected:
+        presented = request.headers.get("x-api-key") or ""
+        if not presented:
+            auth = request.headers.get("authorization") or ""
+            if auth.lower().startswith("bearer "):
+                presented = auth.split(" ", 1)[1]
+        if not presented or not hmac.compare_digest(presented, expected):
             return JSONResponse({"error": "invalid api key"}, status_code=401)
         return await call_next(request)
 
