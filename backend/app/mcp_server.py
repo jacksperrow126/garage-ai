@@ -20,6 +20,7 @@ from typing import Any, Literal
 
 from fastapi import HTTPException, Request, status
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp
@@ -45,11 +46,36 @@ from app.services import (
 
 AGENT = Principal(actor="agent", uid="openclaw", role="manager")
 
-# FastMCP defaults to serving Streamable HTTP at `/mcp`. We mount it on
-# FastAPI under `/mcp` too, so without this override the external URL
-# would be `/mcp/mcp` (fatal footgun — most MCP clients POST to `/mcp/`
-# and get a 404). Override to serve at the mount root.
-mcp = FastMCP("garage-ai", streamable_http_path="/")
+# FastMCP defaults:
+# 1. Streamable HTTP at `/mcp`. We mount it on FastAPI under `/mcp` too,
+#    so without override the external URL would be `/mcp/mcp` (footgun —
+#    any MCP client POSTs to `/mcp/` and gets a 404).
+# 2. DNS-rebinding protection with only localhost/::1 in allowed_hosts.
+#    Our Cloud Run URL isn't localhost, so prod requests 421 unless we
+#    extend the list.
+mcp = FastMCP(
+    "garage-ai",
+    streamable_http_path="/",
+    transport_security=TransportSecuritySettings(
+        # Allow the Cloud Run hostname + the App Hosting proxy's upstream
+        # Host header. `*.run.app` covers Cloud Run variants; `localhost:*`
+        # is retained for local dev.
+        allowed_hosts=[
+            "127.0.0.1:*",
+            "localhost:*",
+            "[::1]:*",
+            "*.run.app",
+            "garage-ai-api-969667367100.asia-southeast1.run.app",
+        ],
+        allowed_origins=[
+            "http://127.0.0.1:*",
+            "http://localhost:*",
+            "http://[::1]:*",
+            "https://garage-ai-api-969667367100.asia-southeast1.run.app",
+            "https://garage-ai-admin--garage-manager-ai.asia-southeast1.hosted.app",
+        ],
+    ),
+)
 
 
 # ── Read-only tools ─────────────────────────────────────────────────────
