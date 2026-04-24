@@ -1,0 +1,67 @@
+name: Deploy backend to Cloud Run
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-deploy.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  # Prevent overlapping deploys; never cancel one in flight, just queue.
+  group: backend-deploy
+  cancel-in-progress: false
+
+permissions:
+  # Required for the google-github-actions/auth action to request a
+  # short-lived ID token from GitHub's OIDC provider.
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        name: Authenticate to Google Cloud via WIF
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/969667367100/locations/global/workloadIdentityPools/github-wif-pool/providers/github
+          service_account: github-actions-deployer@garage-manager-ai.iam.gserviceaccount.com
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: garage-manager-ai
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy garage-ai-api \
+            --source backend \
+            --region asia-southeast1 \
+            --project garage-manager-ai \
+            --allow-unauthenticated \
+            --memory 512Mi \
+            --cpu 1 \
+            --min-instances 0 \
+            --max-instances 3 \
+            --quiet
+
+      - name: Health check deployed revision
+        run: |
+          URL="https://garage-ai-api-969667367100.asia-southeast1.run.app/api/v1/health"
+          for i in 1 2 3 4 5; do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" "$URL")
+            if [ "$code" = "200" ]; then
+              echo "✓ $URL returned 200"
+              exit 0
+            fi
+            echo "attempt $i: $code — retrying in 5s"
+            sleep 5
+          done
+          echo "✗ health never returned 200"
+          exit 1
