@@ -13,8 +13,14 @@ from app.firestore import get_firebase_app
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    from app.mcp_server import mcp
+
     get_firebase_app()  # fail fast on bad credentials at boot
-    yield
+    # FastAPI's app.mount() does not propagate lifespan events to mounted
+    # sub-apps, so FastMCP's Streamable HTTP session manager never starts
+    # its task group. Run it inside our own lifespan so MCP requests work.
+    async with mcp.session_manager.run():
+        yield
 
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
