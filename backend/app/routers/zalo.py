@@ -24,7 +24,7 @@ from google.cloud.firestore import Client
 
 from app.config import get_settings
 from app.firestore import get_db, server_timestamp
-from app.services import agent, conversation, zalo_client
+from app.services import agent, conversation, zalo_client, zalo_users
 
 log = logging.getLogger(__name__)
 
@@ -55,16 +55,42 @@ def _claim_message(db: Client, message_id: str) -> bool:
         return False
 
 
-async def _process_message(user_id: str, chat_id: str, text: str) -> None:
-    """Background task: run the LLM and send the reply.
+async def _process_message(
+    user_id: str, chat_id: str, text: str, display_name: str | None
+) -> None:
+    """Background task: look up the sender, route to the agent, send the reply.
 
     Errors are logged but never re-raised — we've already 200-acked the
     webhook, and crashing here just produces a Cloud Run error log without
     helping the user. We do try to send a polite Vietnamese error reply."""
+    user = zalo_users.get(user_id)
+
+    if not user or not user.get("primary_org_id"):
+        # Placeholder until commit 4 (onboarding flow) lands. The allowlist
+        # already gated this sender in, so reaching here means a known
+        # admin who somehow lost their primary_org_id, OR a future-state
+        # user whose record exists but isn't yet org-linked.
+        await zalo_client.send_message(
+            chat_id,
+            "Xin chào, anh chưa có quyền truy cập tổ chức nào. "
+            "Em sẽ chuyển yêu cầu cho admin sớm.",
+        )
+        return
+
+    org_id = user["primary_org_id"]
+    user_role = user.get("system_role") or "member"
+    display = user.get("name") or display_name
+
     history = conversation.load(user_id)
     assistant_content: list[dict] | None = None
     try:
-        reply_text, assistant_content = await agent.reply(text, history=history)
+        reply_text, assistant_content = await agent.reply(
+            text,
+            org_id=org_id,
+            user_role=user_role,
+            user_display_name=display,
+            history=history,
+        )
     except Exception as exc:
         log.exception("agent.reply failed: %s", exc)
         reply_text = "Xin lỗi, em đang gặp lỗi. Anh thử lại sau nhé."
@@ -104,6 +130,7 @@ async def webhook(
         return {"message": "Success"}
 
     sender = (message.get("from") or {}).get("id") or ""
+    display_name = (message.get("from") or {}).get("display_name") or None
     chat_id = (message.get("chat") or {}).get("id") or sender
     text = message.get("text") or ""
     message_id = message.get("message_id") or ""
@@ -135,5 +162,5 @@ async def webhook(
         return {"message": "Success"}
 
     log.info("zalo: dispatching turn from %s (msg=%s)", sender, message_id)
-    bg.add_task(_process_message, sender, chat_id, text)
+    bg.add_task(_process_message, sender, chat_id, text, display_name)
     return {"message": "Success"}

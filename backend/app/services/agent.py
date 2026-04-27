@@ -4,12 +4,15 @@ Calls Claude Haiku 4.5 via the Messages API with the *native MCP connector*:
 Claude reaches our deployed `/mcp/` endpoint server-side, calls our tools,
 loops until done, and returns the final Vietnamese reply text.
 
-This means we do NOT manage the tool loop client-side. We send the user's
-message + history; Anthropic does the multi-step LLM↔MCP dance; we get back
-one final text reply to pipe into Zalo.
+System prompt is composed of two blocks:
+  1. The shared Vietnamese template from AGENT_PROMPT.md (cached — every
+     turn re-uses the prefix; cache_control: ephemeral).
+  2. A short per-turn dynamic block carrying org_id + user role. Not
+     cached on purpose: it's small, and varies per Zalo user / org.
 
-The MCP connector is currently behind the `mcp-client-2025-04-04` beta header.
-If/when it goes GA, drop the `betas=` argument.
+The dynamic block tells Claude *which* org_id to pass to every MCP tool
+call. The MCP server doesn't enforce org context (it trusts the bearer
+token), so the prompt is what makes routing right.
 """
 
 from __future__ import annotations
@@ -24,21 +27,13 @@ from app.config import get_settings
 log = logging.getLogger(__name__)
 
 MCP_BETA = "mcp-client-2025-04-04"
-# Co-located with this module so it ships in the Docker image (the
-# Dockerfile only copies `app/`, not the repo's docs/ tree).
 PROMPT_PATH = Path(__file__).parent / "AGENT_PROMPT.md"
 
 
 def _load_system_prompt() -> str:
-    """Read the Vietnamese system prompt from docs/AGENT_PROMPT.md.
-
-    Stripped to the prompt body (between the first and last fenced block,
-    if present) so the surrounding markdown commentary doesn't leak in."""
     raw = PROMPT_PATH.read_text(encoding="utf-8")
     if "```" in raw:
         parts = raw.split("```")
-        # Body is between the first and second fence: parts[1] (skip leading
-        # language tag if any).
         body = parts[1]
         if body.lstrip().startswith(("text\n", "markdown\n")):
             body = body.split("\n", 1)[1]
@@ -56,6 +51,20 @@ def system_prompt() -> str:
     return _SYSTEM_PROMPT
 
 
+def _session_context(org_id: str, user_role: str, display_name: str | None) -> str:
+    """The short per-turn block that names the org and tells Claude to
+    thread `org_id` through every MCP tool call."""
+    name = display_name or "Anh/Chị"
+    return (
+        "## Bối cảnh phiên hiện tại\n\n"
+        f"Người dùng: {name} (vai trò: {user_role}).\n"
+        f"Tổ chức (org_id): `{org_id}`.\n\n"
+        "QUAN TRỌNG: Khi gọi bất cứ tool nào (get_product, get_inventory, "
+        "create_import_invoice, confirm_action, …), LUÔN truyền tham số "
+        f"`org_id=\"{org_id}\"`. Đây là tham số bắt buộc."
+    )
+
+
 _client: AsyncAnthropic | None = None
 
 
@@ -71,6 +80,10 @@ def _get_client() -> AsyncAnthropic:
 
 async def reply(
     user_text: str,
+    *,
+    org_id: str,
+    user_role: str = "member",
+    user_display_name: str | None = None,
     history: list[dict] | None = None,
 ) -> tuple[str, list[dict]]:
     """Run one Zalo turn through Claude + MCP.
@@ -78,7 +91,8 @@ async def reply(
     Returns `(final_text, assistant_content_blocks)`. Caller is expected to
     persist `user_text` as a user turn and `assistant_content_blocks` as
     the matching assistant turn so two-phase confirms (preview → "ok" →
-    confirm) work across Zalo messages."""
+    confirm) work across Zalo messages.
+    """
     settings = get_settings()
     client = _get_client()
 
@@ -93,7 +107,11 @@ async def reply(
                 "type": "text",
                 "text": system_prompt(),
                 "cache_control": {"type": "ephemeral"},
-            }
+            },
+            {
+                "type": "text",
+                "text": _session_context(org_id, user_role, user_display_name),
+            },
         ],
         messages=messages,
         mcp_servers=[
@@ -111,7 +129,6 @@ async def reply(
     mcp_calls = 0
     content_blocks: list[dict] = []
     for block in resp.content:
-        # Serialize to JSON-safe dict for Firestore + replay on next turn.
         block_dict = (
             block.model_dump(mode="json") if hasattr(block, "model_dump") else dict(block)
         )
@@ -124,7 +141,9 @@ async def reply(
 
     final_text = "\n\n".join(p.strip() for p in text_parts if p.strip())
     log.info(
-        "agent: model=%s stop=%s mcp_calls=%d reply_chars=%d history=%d",
+        "agent: org=%s role=%s model=%s stop=%s mcp_calls=%d reply_chars=%d history=%d",
+        org_id,
+        user_role,
         settings.agent_model,
         getattr(resp, "stop_reason", "?"),
         mcp_calls,
@@ -133,6 +152,5 @@ async def reply(
     )
 
     if not final_text:
-        # Defensive fallback — shouldn't happen, but the user must get *something*.
         final_text = "Xin lỗi, em đang gặp lỗi. Anh thử lại sau nhé."
     return final_text, content_blocks
