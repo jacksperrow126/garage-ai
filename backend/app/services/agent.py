@@ -51,18 +51,44 @@ def system_prompt() -> str:
     return _SYSTEM_PROMPT
 
 
-def _session_context(org_id: str, user_role: str, display_name: str | None) -> str:
-    """The short per-turn block that names the org and tells Claude to
-    thread `org_id` through every MCP tool call."""
+def _session_context(
+    org_id: str,
+    user_role: str,
+    display_name: str | None,
+    zalo_id: str,
+) -> str:
+    """The short per-turn block that names the org, the caller's Zalo id,
+    and tells Claude to thread `org_id` through every MCP tool call.
+    For admins, also nudges Claude toward the access-request tools."""
     name = display_name or "Anh/Chị"
-    return (
+    base = (
         "## Bối cảnh phiên hiện tại\n\n"
-        f"Người dùng: {name} (vai trò: {user_role}).\n"
+        f"Người dùng: {name} (vai trò: {user_role}, zalo_id: `{zalo_id}`).\n"
         f"Tổ chức (org_id): `{org_id}`.\n\n"
         "QUAN TRỌNG: Khi gọi bất cứ tool nào (get_product, get_inventory, "
         "create_import_invoice, confirm_action, …), LUÔN truyền tham số "
         f"`org_id=\"{org_id}\"`. Đây là tham số bắt buộc."
     )
+    if user_role == "admin":
+        base += (
+            "\n\n## Anh là ADMIN của hệ thống\n\n"
+            "Bot có thể chuyển yêu cầu truy cập từ người dùng mới vào DM "
+            "của anh dưới dạng:\n"
+            "  '🆕 Yêu cầu mới: <tên> (zalo:<id>) … Mã yêu cầu: <request_id> …'\n\n"
+            "Khi anh trả lời ý định duyệt/từ chối:\n"
+            "  - Duyệt: gọi `approve_access_request(request_id=..., "
+            "target_org_id=<slug>, role=<owner|manager|member>, "
+            f"admin_zalo_id=\"{zalo_id}\")`. Sau khi tool trả về OK, đọc lại "
+            "kết quả cho anh bằng tiếng Việt.\n"
+            "  - Từ chối: gọi `deny_access_request(request_id=..., reason=<lý do>, "
+            f"admin_zalo_id=\"{zalo_id}\")`.\n"
+            "  - Liệt kê yêu cầu đang chờ: `list_pending_access_requests()`.\n"
+            "  - Tạo tổ chức mới: `create_organization(name=<tên>, "
+            f"admin_zalo_id=\"{zalo_id}\")`.\n\n"
+            "Đối với các tool quản trị này KHÔNG cần truyền org_id — "
+            "chúng hoạt động ở phạm vi toàn hệ thống."
+        )
+    return base
 
 
 _client: AsyncAnthropic | None = None
@@ -85,6 +111,7 @@ async def reply(
     user_role: str = "member",
     user_display_name: str | None = None,
     history: list[dict] | None = None,
+    zalo_id: str = "",
 ) -> tuple[str, list[dict]]:
     """Run one Zalo turn through Claude + MCP.
 
@@ -110,7 +137,7 @@ async def reply(
             },
             {
                 "type": "text",
-                "text": _session_context(org_id, user_role, user_display_name),
+                "text": _session_context(org_id, user_role, user_display_name, zalo_id),
             },
         ],
         messages=messages,

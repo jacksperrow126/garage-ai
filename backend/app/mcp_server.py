@@ -39,11 +39,13 @@ from app.models.invoice import (
 )
 from app.models.product import ProductCreate
 from app.services import (
+    access_requests,
     audit,
     customers,
     inventory,
     invoice_read,
     invoices,
+    orgs,
     previews,
     reports,
 )
@@ -260,6 +262,64 @@ def confirm_action(org_id: str, preview_id: str) -> dict[str, Any]:
         parsed = ServiceInvoiceCreate(**payload)
         return invoices.create_service_invoice(org_id, parsed, AGENT)
     raise HTTPException(status.HTTP_400_BAD_REQUEST, f"unknown preview action: {action}")
+
+
+# ── Admin tools (org access management) ─────────────────────────────────
+
+@mcp.tool()
+def list_organizations() -> list[dict[str, Any]]:
+    """List every organization in the system. Used by admin when picking
+    a target org for an access-request approval."""
+    return orgs.list_orgs()
+
+
+@mcp.tool()
+def list_pending_access_requests() -> list[dict[str, Any]]:
+    """List every still-pending org-access request. Admin-only in
+    practice — the prompt instructs Claude to use this when the admin
+    asks about onboarding queue."""
+    return access_requests.list_pending()
+
+
+@mcp.tool()
+def approve_access_request(
+    request_id: str,
+    target_org_id: str,
+    role: Literal["owner", "manager", "member"],
+    admin_zalo_id: str,
+) -> dict[str, Any]:
+    """Approve a pending access request: add the requester as a member of
+    `target_org_id` with the given role, set their primary_org_id, mark
+    the request approved, and record the approving admin's Zalo id.
+
+    Pass the admin's own zalo_id as `admin_zalo_id` (the agent's session
+    context surfaces it). Returns the resolved request payload — the
+    caller should then DM the requester confirming approval."""
+    try:
+        return access_requests.approve(
+            request_id, target_org_id, role, admin_zalo_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@mcp.tool()
+def deny_access_request(
+    request_id: str, reason: str, admin_zalo_id: str
+) -> dict[str, Any]:
+    """Deny a pending access request with a short Vietnamese reason.
+    Caller should DM the requester with the rejection text."""
+    try:
+        return access_requests.deny(request_id, reason, admin_zalo_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@mcp.tool()
+def create_organization(name: str, admin_zalo_id: str) -> dict[str, Any]:
+    """Admin-only: spin up a new organization. The creator becomes the
+    first owner-member. Returns the new org's slug as `id`."""
+    return orgs.create_org(name=name, owner_zalo_id=admin_zalo_id)
 
 
 # ── ASGI middleware: API key enforcement ────────────────────────────────

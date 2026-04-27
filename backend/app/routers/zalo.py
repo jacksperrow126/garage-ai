@@ -24,7 +24,7 @@ from google.cloud.firestore import Client
 
 from app.config import get_settings
 from app.firestore import get_db, server_timestamp
-from app.services import agent, conversation, zalo_client, zalo_users
+from app.services import access_requests, agent, conversation, zalo_client, zalo_users
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +55,45 @@ def _claim_message(db: Client, message_id: str) -> bool:
         return False
 
 
+async def _onboard_unknown_sender(
+    user_id: str, chat_id: str, text: str, display_name: str | None
+) -> None:
+    """Unknown senders → create (or surface existing) access request,
+    DM the admin(s), reply to the requester with a brief acknowledgement."""
+    request, is_new = access_requests.create_or_get_pending(
+        user_id, display_name, text
+    )
+    if not is_new:
+        await zalo_client.send_message(
+            chat_id,
+            "Yêu cầu của anh đang chờ admin duyệt. Em sẽ báo lại khi có kết quả.",
+        )
+        return
+
+    await zalo_client.send_message(
+        chat_id,
+        "Em đã chuyển yêu cầu cấp quyền của anh cho admin. "
+        "Khi được duyệt em sẽ báo lại ngay.",
+    )
+
+    admins = access_requests.list_admins()
+    name = display_name or "Người dùng"
+    notice = (
+        f"🆕 Yêu cầu mới: {name} (zalo:{user_id}) muốn dùng dịch vụ.\n\n"
+        f"Tin nhắn: \"{text}\"\n\n"
+        f"Mã yêu cầu: {request['id']}\n\n"
+        "Để duyệt, anh có thể trả lời (ví dụ): "
+        f"'duyệt {request['id']} cho tiệm garage-chinh vai trò manager'.\n"
+        f"Để từ chối: 'từ chối {request['id']} lý do <ngắn gọn>'."
+    )
+    for admin in admins:
+        admin_chat_id = admin["id"]  # for Zalo, private chat_id == user id
+        try:
+            await zalo_client.send_message(admin_chat_id, notice)
+        except Exception as exc:
+            log.exception("zalo: failed to DM admin %s: %s", admin_chat_id, exc)
+
+
 async def _process_message(
     user_id: str, chat_id: str, text: str, display_name: str | None
 ) -> None:
@@ -66,15 +105,7 @@ async def _process_message(
     user = zalo_users.get(user_id)
 
     if not user or not user.get("primary_org_id"):
-        # Placeholder until commit 4 (onboarding flow) lands. The allowlist
-        # already gated this sender in, so reaching here means a known
-        # admin who somehow lost their primary_org_id, OR a future-state
-        # user whose record exists but isn't yet org-linked.
-        await zalo_client.send_message(
-            chat_id,
-            "Xin chào, anh chưa có quyền truy cập tổ chức nào. "
-            "Em sẽ chuyển yêu cầu cho admin sớm.",
-        )
+        await _onboard_unknown_sender(user_id, chat_id, text, display_name)
         return
 
     org_id = user["primary_org_id"]
@@ -90,6 +121,7 @@ async def _process_message(
             user_role=user_role,
             user_display_name=display,
             history=history,
+            zalo_id=user_id,
         )
     except Exception as exc:
         log.exception("agent.reply failed: %s", exc)
