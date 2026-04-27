@@ -83,13 +83,14 @@ async def webhook(
 
     body: dict[str, Any] = await request.json()
     result = body.get("result") or {}
-    event_name = result.get("event_name") or ""
-    message = result.get("message") or {}
+    event_name = result.get("event_name") or body.get("event_name") or ""
+    message = result.get("message") or body.get("message") or {}
 
     # Phase 1+2 only handles plain text. Stickers / images / unsupported are
     # acked to keep Zalo happy; we may surface a "I only read text" reply later.
     if event_name != "message.text.received":
-        log.info("zalo: ignoring event %s", event_name)
+        # Log the raw body once so we can confirm Zalo's actual envelope shape.
+        log.info("zalo: ignoring event %r body=%r", event_name, body)
         return {"message": "Success"}
 
     sender = (message.get("from") or {}).get("id") or ""
