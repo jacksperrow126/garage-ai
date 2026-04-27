@@ -39,6 +39,10 @@ jobs:
           project_id: garage-manager-ai
 
       - name: Deploy to Cloud Run
+        # --update-secrets is additive (like --update-env-vars) — it merges
+        # into existing bindings instead of wiping them. Required so that
+        # OPENCLAW_API_KEY (set out-of-band before the workflow existed)
+        # survives rollouts.
         run: |
           gcloud run deploy garage-ai-api \
             --source backend \
@@ -49,6 +53,7 @@ jobs:
             --cpu 1 \
             --min-instances 0 \
             --max-instances 3 \
+            --update-secrets=ANTHROPIC_API_KEY=anthropic-api-key:latest,ZALO_BOT_TOKEN=zalo-bot-token:latest,ZALO_WEBHOOK_SECRET=zalo-webhook-secret:latest \
             --quiet
 
       - name: Health check deployed revision

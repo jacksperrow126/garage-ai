@@ -131,21 +131,57 @@ python scripts/set_role.py --email you@example.com --role owner --project garage
 
 Sign out / sign in in the admin panel for the claim to take effect.
 
-## 6. Wire up OpenClaw
+## 6. Wire up the Zalo Bot agent
 
-In OpenClaw's UI, add a new **MCP server**:
-- **URL**: `https://garage-api-<hash>-as.a.run.app/mcp`
-- **Auth**: API key header `X-API-Key: <secret from step 3a>`
+The agent is in-house: `/zalo/webhook` receives messages, calls Claude Haiku
+4.5 (Anthropic Messages API + native MCP connector), and replies through
+the Zalo Bot API.
 
-Paste the Vietnamese system prompt from [OPENCLAW_PROMPT.md](OPENCLAW_PROMPT.md)
-into OpenClaw's agent configuration.
+**a. Create the bot.** Open Zalo, message the "Zalo Bot Manager" OA →
+"Tạo bot" → name must start with `Bot` (e.g. `BotMissMP`). Receive Bot
+Token via Zalo DM.
+
+**b. Generate a webhook secret.**
+
+```bash
+openssl rand -hex 32
+```
+
+**c. Provision Secret Manager.**
+
+```bash
+echo -n "<bot-token>"      | gcloud secrets create zalo-bot-token \
+  --replication-policy=automatic --data-file=- --project garage-manager-ai
+echo -n "<webhook-secret>" | gcloud secrets create zalo-webhook-secret \
+  --replication-policy=automatic --data-file=- --project garage-manager-ai
+echo -n "<sk-ant-...>"     | gcloud secrets create anthropic-api-key \
+  --replication-policy=automatic --data-file=- --project garage-manager-ai
+```
+
+Grant `roles/secretmanager.secretAccessor` to the Cloud Run runtime SA on
+each new secret (same pattern as `openclaw-api-key`).
+
+**d. Deploy** — `git push origin master` rebuilds Cloud Run and re-binds
+the secrets via `--set-secrets` (see `.github/workflows/backend-deploy.yml`).
+
+**e. Register the webhook with Zalo.**
+
+```bash
+cd backend
+python scripts/setup_zalo_webhook.py
+```
+
+**f. Capture allowed sender ids.** Send the bot a test message from Zalo;
+its `from.id` shows up in Cloud Run logs. Copy it into the
+`ZALO_ALLOWED_USER_IDS` env (Cloud Run → Edit revision → Variables &
+Secrets → comma-separated list). Repeat for brother-in-law's Zalo account.
 
 ## 7. Verify end-to-end
 
 Follow the smoke test in the main `README.md`. At a minimum:
 - Sign in to the admin panel, see an empty dashboard
 - Create a product via UI
-- Import stock via Zalo → OpenClaw → MCP → confirm → verify in inventory
+- Import stock via Zalo → agent → MCP → confirm → verify in inventory
 - "Hôm nay lời bao nhiêu?" in Zalo returns the correct profit
 
 ## Launch checklist
@@ -153,8 +189,10 @@ Follow the smoke test in the main `README.md`. At a minimum:
 - [ ] Firestore **backups** enabled (console → Firestore → Backups)
 - [ ] Cloud Run **min-instances = 0**, max = 3
 - [ ] Budget alert at $20/month on the GCP project
+- [ ] Anthropic Console spend cap set
 - [ ] Owner has Firebase console access; brother-in-law does not
-- [ ] `OPENCLAW_API_KEY` rotated (and updated in OpenClaw) at least quarterly
+- [ ] `OPENCLAW_API_KEY` rotated at least quarterly
+- [ ] `ZALO_ALLOWED_USER_IDS` populated (no log-only mode in prod)
 - [ ] README runbook known to one other person
 
 ## Emergency runbook

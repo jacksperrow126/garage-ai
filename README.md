@@ -1,30 +1,36 @@
 # garage-ai
 
 A garage management platform for a small car service shop in Vietnam.
-Brother-in-law runs the shop through Zalo chat (via OpenClaw AI); owner
-monitors via a bilingual (VI/EN) web admin panel.
+Brother-in-law runs the shop through Zalo chat (via an in-house Claude
+agent); owner monitors via a bilingual (VI/EN) web admin panel.
 
 ## Architecture
 
 ```
-[Brother-in-law] ──Zalo──▶ [OpenClaw] ──MCP + REST──▶ [FastAPI / Cloud Run] ──▶ [Firestore]
-                                                              ▲
-[Owner (browser)] ──▶ [Next.js / Firebase App Hosting] ───────┘
+[Brother-in-law] ──Zalo Bot──▶ [/zalo/webhook] ──▶ [Claude Haiku 4.5 (Anthropic)]
+                                                          │ MCP connector
+                                                          ▼
+                                              [/mcp/ on same FastAPI] ──▶ [Firestore]
+                                                          ▲
+[Owner (browser)] ──▶ [Next.js / Firebase App Hosting] ───┘
                        (same-origin rewrites to the API)
 ```
 
 - **Backend** (`backend/`) — FastAPI on Cloud Run. Exposes `/api/v1/*`
-  (REST) and `/mcp` (MCP Streamable HTTP). Single `services/` layer is the
-  source of truth for both surfaces. Firestore transactions enforce
-  moving-average cost, invoice immutability, and atomic stock updates.
+  (REST), `/mcp/` (MCP Streamable HTTP), and `/zalo/webhook` (Zalo Bot
+  inbound). Single `services/` layer is the source of truth for all
+  surfaces. Firestore transactions enforce moving-average cost, invoice
+  immutability, and atomic stock updates.
 - **Frontend** (`frontend/`) — Next.js 15 App Router, Tailwind v4, bilingual
   (Vietnamese default, English toggle). Deployed to Firebase App Hosting,
   auto-building on push to `master`.
 - **Data** (`firestore.rules`, `firestore.indexes.json`) — Firestore in
   native mode. Security rules deny all direct client access; all reads/writes
   go through our backend.
-- **AI** — OpenClaw is configured separately by the owner. We only expose
-  the tool surface. System-prompt template in [`docs/OPENCLAW_PROMPT.md`](docs/OPENCLAW_PROMPT.md).
+- **AI** — Anthropic Claude Haiku 4.5 via the Messages API's native MCP
+  connector. We invoke Claude from the Zalo webhook handler; Claude calls
+  back into our `/mcp/` to use shop tools. System prompt in
+  [`docs/AGENT_PROMPT.md`](docs/AGENT_PROMPT.md).
 
 ## Features
 
@@ -43,7 +49,9 @@ monitors via a bilingual (VI/EN) web admin panel.
   avg-cost, invoice doc, stock-move audit, and audit-log all atomic
 
 ### AI / MCP
-- OpenClaw calls tools over MCP (`/mcp`) or REST (`/api/v1/*`) with `X-API-Key`
+- Claude (via Anthropic Messages API + native MCP connector) calls tools
+  over `/mcp/` with `Authorization: Bearer <API_KEY>`. The same key is also
+  accepted as `X-API-Key` for direct REST callers.
 - Destructive tools (`create_import_invoice`, `create_service_invoice`,
   `add_product`) use two-phase confirmation — first call returns a
   `preview_id`, second call (`confirm_action`) commits
@@ -124,8 +132,9 @@ garage-ai/
 - **Timezones**: timestamps stored UTC; UI formats to `Asia/Ho_Chi_Minh`.
 - **SKU normalization**: uppercased, whitespace-trimmed at the Pydantic
   validation layer. `oil 5w30` → `OIL5W30`.
-- **Auth**: admin panel uses Firebase ID tokens; OpenClaw uses `X-API-Key`
-  (stored in Secret Manager, rotated quarterly).
+- **Auth**: admin panel uses Firebase ID tokens; the agent uses a shared
+  API key (stored in Secret Manager, rotated quarterly), accepted as either
+  `X-API-Key` or `Authorization: Bearer`.
 - **Immutability**: invoices can't be edited; use adjustments. This is
   enforced by the absence of a PATCH route — there is nothing to call.
 

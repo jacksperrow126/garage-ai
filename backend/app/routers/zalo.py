@@ -1,0 +1,128 @@
+"""Zalo Bot webhook.
+
+Zalo POSTs to this endpoint on every event. We:
+  1. verify the static webhook secret in the X-Bot-Api-Secret-Token header
+  2. allowlist by sender's Zalo user id
+  3. dedupe by message_id (Zalo retries on non-200)
+  4. respond 200 immediately and run the LLM + reply in a background task
+     (Zalo's webhook timeout is short; LLM call takes seconds)
+
+Per Zalo docs the envelope is:
+  {"ok": true, "result": {"event_name": "...", "message": {...}}}
+
+We only handle `message.text.received` for now; other events are 200-acked.
+"""
+
+from __future__ import annotations
+
+import hmac
+import logging
+from typing import Any
+
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, status
+from google.cloud.firestore import Client
+
+from app.config import get_settings
+from app.firestore import get_db, server_timestamp
+from app.services import agent, zalo_client
+
+log = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+def _verify_secret(presented: str | None) -> None:
+    expected = get_settings().zalo_webhook_secret
+    if not expected:
+        # Fail closed if misconfigured rather than accept everything.
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "webhook secret not configured")
+    if not presented or not hmac.compare_digest(presented, expected):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "invalid webhook secret")
+
+
+def _claim_message(db: Client, message_id: str) -> bool:
+    """Return True if this is the first time we've seen this message_id.
+
+    Zalo retries on 5xx (and on timeouts), so without dedupe a single user
+    message can fire two LLM calls + two replies. We use the message_id as
+    the doc key in `zalo_messages_seen` and rely on .create() raising on
+    a pre-existing doc."""
+    ref = db.collection("zalo_messages_seen").document(message_id)
+    try:
+        ref.create({"created_at": server_timestamp()})
+        return True
+    except Exception:  # google.api_core.exceptions.AlreadyExists or similar
+        return False
+
+
+async def _process_message(chat_id: str, text: str) -> None:
+    """Background task: run the LLM and send the reply.
+
+    Errors are logged but never re-raised — we've already 200-acked the
+    webhook, and crashing here just produces a Cloud Run error log without
+    helping the user. We do try to send a polite Vietnamese error reply."""
+    try:
+        reply_text = await agent.reply(text)
+    except Exception as exc:
+        log.exception("agent.reply failed: %s", exc)
+        reply_text = "Xin lỗi, em đang gặp lỗi. Anh thử lại sau nhé."
+
+    try:
+        await zalo_client.send_message(chat_id, reply_text)
+    except Exception as exc:
+        log.exception("zalo send failed: %s", exc)
+
+
+@router.post("/webhook")
+async def webhook(
+    request: Request,
+    bg: BackgroundTasks,
+    x_bot_api_secret_token: str | None = Header(default=None),
+) -> dict[str, str]:
+    _verify_secret(x_bot_api_secret_token)
+
+    body: dict[str, Any] = await request.json()
+    result = body.get("result") or {}
+    event_name = result.get("event_name") or ""
+    message = result.get("message") or {}
+
+    # Phase 1+2 only handles plain text. Stickers / images / unsupported are
+    # acked to keep Zalo happy; we may surface a "I only read text" reply later.
+    if event_name != "message.text.received":
+        log.info("zalo: ignoring event %s", event_name)
+        return {"message": "Success"}
+
+    sender = (message.get("from") or {}).get("id") or ""
+    chat_id = (message.get("chat") or {}).get("id") or sender
+    text = message.get("text") or ""
+    message_id = message.get("message_id") or ""
+
+    if not (sender and chat_id and text and message_id):
+        log.warning("zalo: malformed message envelope: %s", body)
+        return {"message": "Success"}
+
+    settings = get_settings()
+    allowed = settings.zalo_allowed_user_id_set
+
+    if not allowed:
+        # Log-only "capture" mode: no reply, just print the sender id so
+        # the operator can copy it into ZALO_ALLOWED_USER_IDS.
+        log.info(
+            "zalo: log-only mode — capture this id and add to "
+            "ZALO_ALLOWED_USER_IDS: %s (text=%r)",
+            sender,
+            text[:80],
+        )
+        return {"message": "Success"}
+
+    if sender not in allowed:
+        log.warning("zalo: rejecting sender %s (not in allowlist)", sender)
+        return {"message": "Success"}
+
+    if not _claim_message(get_db(), message_id):
+        log.info("zalo: duplicate message_id %s — skipping", message_id)
+        return {"message": "Success"}
+
+    log.info("zalo: dispatching turn from %s (msg=%s)", sender, message_id)
+    bg.add_task(_process_message, chat_id, text)
+    return {"message": "Success"}

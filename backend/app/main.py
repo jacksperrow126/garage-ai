@@ -48,10 +48,14 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "X-API-Key"],
     )
 
-    from app.routers import customers, health, invoices, products, reports, suppliers
+    from app.routers import customers, health, invoices, products, reports, suppliers, zalo
 
     for r in (health, products, invoices, customers, suppliers, reports):
         app.include_router(r.router, prefix="/api/v1")
+
+    # Zalo Bot webhook lives outside /api/v1 — its URL is registered with
+    # Zalo's setWebhook API and shouldn't be versioned alongside the admin REST.
+    app.include_router(zalo.router, prefix="/zalo")
 
     from app.mcp_server import mcp_asgi_app
 
