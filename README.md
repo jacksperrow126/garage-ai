@@ -30,7 +30,8 @@ agent); owner monitors via a bilingual (VI/EN) web admin panel.
 - **AI** — Anthropic Claude Haiku 4.5 via the Messages API's native MCP
   connector. We invoke Claude from the Zalo webhook handler; Claude calls
   back into our `/mcp/` to use shop tools. System prompt in
-  [`docs/AGENT_PROMPT.md`](docs/AGENT_PROMPT.md).
+  [`backend/app/services/AGENT_PROMPT.md`](backend/app/services/AGENT_PROMPT.md)
+  (lives next to `agent.py` so it ships with the Docker image).
 
 ## Features
 
@@ -116,7 +117,7 @@ Highlights:
 garage-ai/
 ├── backend/          # FastAPI + MCP + services + tests
 ├── frontend/         # Next.js admin panel
-├── docs/             # DEPLOY.md, OPENCLAW_PROMPT.md
+├── docs/             # DEPLOY.md, MULTI_TENANT.md
 ├── firebase.json
 ├── firestore.rules
 ├── firestore.indexes.json

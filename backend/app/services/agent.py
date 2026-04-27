@@ -24,8 +24,9 @@ from app.config import get_settings
 log = logging.getLogger(__name__)
 
 MCP_BETA = "mcp-client-2025-04-04"
-DOCS_DIR = Path(__file__).resolve().parents[2].parent / "docs"
-PROMPT_PATH = DOCS_DIR / "AGENT_PROMPT.md"
+# Co-located with this module so it ships in the Docker image (the
+# Dockerfile only copies `app/`, not the repo's docs/ tree).
+PROMPT_PATH = Path(__file__).parent / "AGENT_PROMPT.md"
 
 
 def _load_system_prompt() -> str:
