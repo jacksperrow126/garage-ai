@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import Field
 
-from app.auth import Principal, require_agent_or_user
+from app.auth import Principal, require_agent_or_user, require_org_id
 from app.models.invoice import (
     AdjustmentCreate,
     ImportInvoiceCreate,
@@ -28,9 +28,10 @@ def list_invoices(
     to: datetime | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     _: Principal = Depends(require_agent_or_user),
+    org_id: str = Depends(require_org_id),
 ) -> list[dict]:
     return invoice_read.list_invoices(
-        type_=type, status_=status_, from_=from_, to_=to, limit=limit
+        org_id, type_=type, status_=status_, from_=from_, to_=to, limit=limit
     )
 
 
@@ -38,11 +39,12 @@ def list_invoices(
 def get_invoice(
     invoice_id: str,
     _: Principal = Depends(require_agent_or_user),
+    org_id: str = Depends(require_org_id),
 ) -> dict:
-    inv = invoice_read.get_invoice(invoice_id)
+    inv = invoice_read.get_invoice(org_id, invoice_id)
     if not inv:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "invoice not found")
-    inv["adjustments"] = invoice_read.list_adjustments_for(invoice_id)
+    inv["adjustments"] = invoice_read.list_adjustments_for(org_id, invoice_id)
     return inv
 
 
@@ -50,10 +52,11 @@ def get_invoice(
 def create_invoice(
     payload: InvoiceBody = Body(...),
     principal: Principal = Depends(require_agent_or_user),
+    org_id: str = Depends(require_org_id),
 ) -> dict:
     if payload.type == "import":
-        return invoices.create_import_invoice(payload, principal)
-    return invoices.create_service_invoice(payload, principal)
+        return invoices.create_import_invoice(org_id, payload, principal)
+    return invoices.create_service_invoice(org_id, payload, principal)
 
 
 @router.post("/{invoice_id}/adjustments", status_code=status.HTTP_201_CREATED)
@@ -61,5 +64,6 @@ def create_adjustment(
     invoice_id: str,
     data: AdjustmentCreate,
     principal: Principal = Depends(require_agent_or_user),
+    org_id: str = Depends(require_org_id),
 ) -> dict:
-    return invoices.create_adjustment(invoice_id, data.type, data.reason, principal)
+    return invoices.create_adjustment(org_id, invoice_id, data.type, data.reason, principal)

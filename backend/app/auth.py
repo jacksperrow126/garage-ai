@@ -17,13 +17,20 @@ class Principal:
     """Who is making this request.
 
     actor="user"  → human via admin panel (Firebase ID token)
-    actor="agent" → OpenClaw via API key (uid="ai:openclaw")
+    actor="agent" → bot agent via API key (uid="openclaw")
+
+    `primary_org_id` and `system_role` are populated for users when their
+    Firebase token carries the matching custom claims; agent calls always
+    use a singleton principal that doesn't carry org context (the org_id
+    arrives as an explicit MCP tool argument instead).
     """
 
     actor: Actor
     uid: str
     role: Role
     email: str | None = None
+    primary_org_id: str | None = None
+    system_role: str | None = None  # e.g. "admin" — bypasses membership
 
     @property
     def audit_actor(self) -> str:
@@ -51,7 +58,7 @@ def _verify_firebase_token(authorization: str | None) -> Principal:
 
 
 def _verify_api_key(api_key: str | None, settings: Settings) -> Principal:
-    if not api_key or api_key != settings.openclaw_api_key:
+    if not api_key or not hmac.compare_digest(api_key, settings.openclaw_api_key):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid api key")
     # Agent requests run with manager-equivalent role — no destructive bypass.
     return Principal(actor="agent", uid="openclaw", role="manager")
@@ -76,8 +83,8 @@ async def require_agent_or_user(
     settings: Settings = Depends(get_settings),
 ) -> Principal:
     """Accepts any of:
-    - `X-API-Key: <openclaw-key>`                  → agent (OpenClaw, X-API-Key shim)
-    - `Authorization: Bearer <openclaw-key>`       → agent (MCP / Anthropic native)
+    - `X-API-Key: <api-key>`                       → agent (REST shim)
+    - `Authorization: Bearer <api-key>`            → agent (MCP / Anthropic native)
     - `Authorization: Bearer <firebase-id-token>`  → user (admin panel)
     """
     if x_api_key:
@@ -90,3 +97,14 @@ async def require_agent_or_user(
         if hmac.compare_digest(token, settings.openclaw_api_key):
             return Principal(actor="agent", uid="openclaw", role="manager")
     return _verify_firebase_token(authorization)
+
+
+async def require_org_id(
+    x_org_id: str | None = Header(default=None),
+    settings: Settings = Depends(get_settings),
+) -> str:
+    """Per-request org context. Frontend sends `X-Org-ID: <slug>`; if absent
+    we fall back to `settings.default_org_id` (single-tenant convenience —
+    fine until the second org goes live, at which point the frontend must
+    start sending the header explicitly)."""
+    return x_org_id or settings.default_org_id

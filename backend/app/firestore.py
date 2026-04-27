@@ -34,3 +34,14 @@ def get_db() -> firestore.Client:
 def server_timestamp() -> object:
     """Sentinel for Firestore SERVER_TIMESTAMP. Opaque by design."""
     return firestore.SERVER_TIMESTAMP
+
+
+def org_collection(org_id: str, name: str) -> firestore.CollectionReference:
+    """Return a reference to a collection scoped under an organization.
+
+    All shop-level data (products, invoices, customers, ...) lives at
+    `organizations/{org_id}/{name}` after the multi-tenant migration.
+    Use this rather than `get_db().collection(name)` everywhere except
+    for true global collections (zalo_users, organizations, conversations,
+    zalo_messages_seen, access_requests)."""
+    return get_db().collection("organizations").document(org_id).collection(name)

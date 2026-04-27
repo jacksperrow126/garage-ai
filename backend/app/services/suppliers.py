@@ -7,39 +7,47 @@ from fastapi import HTTPException, status
 from google.cloud import firestore
 
 from app.auth import Principal
-from app.firestore import get_db, server_timestamp
+from app.firestore import org_collection, server_timestamp
 from app.models.supplier import SupplierCreate, SupplierUpdate
 from app.services import audit
 
 
-def _ref(supplier_id: str) -> firestore.DocumentReference:
-    return get_db().collection("suppliers").document(supplier_id)
+def _ref(org_id: str, supplier_id: str) -> firestore.DocumentReference:
+    return org_collection(org_id, "suppliers").document(supplier_id)
 
 
-def create(data: SupplierCreate, principal: Principal) -> dict[str, Any]:
-    ref = get_db().collection("suppliers").document()
+def create(org_id: str, data: SupplierCreate, principal: Principal) -> dict[str, Any]:
+    ref = org_collection(org_id, "suppliers").document()
     now = datetime.now(UTC)
     ref.set({**data.model_dump(), "created_at": server_timestamp()})
-    audit.log("create_supplier", principal.audit_actor, payload=data.model_dump(), result={"id": ref.id})
+    audit.log(
+        org_id,
+        "create_supplier",
+        principal.audit_actor,
+        payload=data.model_dump(),
+        result={"id": ref.id},
+    )
     return {"id": ref.id, **data.model_dump(), "created_at": now}
 
 
-def get(supplier_id: str) -> dict[str, Any] | None:
-    snap = _ref(supplier_id).get()
+def get(org_id: str, supplier_id: str) -> dict[str, Any] | None:
+    snap = _ref(org_id, supplier_id).get()
     if not snap.exists:
         return None
     return {"id": supplier_id, **(snap.to_dict() or {})}
 
 
-def list_all() -> list[dict[str, Any]]:
+def list_all(org_id: str) -> list[dict[str, Any]]:
     return [
         {"id": doc.id, **(doc.to_dict() or {})}
-        for doc in get_db().collection("suppliers").stream()
+        for doc in org_collection(org_id, "suppliers").stream()
     ]
 
 
-def update(supplier_id: str, data: SupplierUpdate, principal: Principal) -> dict[str, Any]:
-    ref = _ref(supplier_id)
+def update(
+    org_id: str, supplier_id: str, data: SupplierUpdate, principal: Principal
+) -> dict[str, Any]:
+    ref = _ref(org_id, supplier_id)
     snap = ref.get()
     if not snap.exists:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "supplier not found")
@@ -48,6 +56,7 @@ def update(supplier_id: str, data: SupplierUpdate, principal: Principal) -> dict
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no fields to update")
     ref.update(updates)
     audit.log(
+        org_id,
         "update_supplier",
         principal.audit_actor,
         payload={"id": supplier_id, "fields": updates},
@@ -56,9 +65,10 @@ def update(supplier_id: str, data: SupplierUpdate, principal: Principal) -> dict
     return {"id": supplier_id, **(snap.to_dict() or {}), **updates}
 
 
-def delete(supplier_id: str, principal: Principal) -> None:
-    _ref(supplier_id).delete()
+def delete(org_id: str, supplier_id: str, principal: Principal) -> None:
+    _ref(org_id, supplier_id).delete()
     audit.log(
+        org_id,
         "delete_supplier",
         principal.audit_actor,
         payload={"id": supplier_id},

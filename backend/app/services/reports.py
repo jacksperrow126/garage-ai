@@ -8,9 +8,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from google.cloud import firestore
-
-from app.firestore import get_db
+from app.firestore import org_collection
 
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
@@ -30,10 +28,8 @@ def _month_range_utc(year: int, month: int) -> tuple[datetime, datetime]:
     return start_local, end_local
 
 
-def _service_invoices_in(start: datetime, end: datetime) -> list[dict[str, Any]]:
-    # Include both posted and adjusted — an adjustment is a record of change,
-    # not a reversal. The revenue still happened; reports must still show it.
-    col = get_db().collection("invoices")
+def _service_invoices_in(org_id: str, start: datetime, end: datetime) -> list[dict[str, Any]]:
+    col = org_collection(org_id, "invoices")
     q = (
         col.where("type", "==", "service")
         .where("status", "in", ["posted", "adjusted"])
@@ -43,11 +39,11 @@ def _service_invoices_in(start: datetime, end: datetime) -> list[dict[str, Any]]
     return [{"id": doc.id, **(doc.to_dict() or {})} for doc in q.stream()]
 
 
-def daily(d: date | None = None) -> dict[str, Any]:
+def daily(org_id: str, d: date | None = None) -> dict[str, Any]:
     if d is None:
         d = datetime.now(VN_TZ).date()
     start, end = _day_range_utc(d)
-    invoices = _service_invoices_in(start, end)
+    invoices = _service_invoices_in(org_id, start, end)
     revenue = sum(int(inv.get("total_revenue") or 0) for inv in invoices)
     cost = sum(int(inv.get("total_cost") or 0) for inv in invoices)
     return {
@@ -59,9 +55,9 @@ def daily(d: date | None = None) -> dict[str, Any]:
     }
 
 
-def monthly(year: int, month: int) -> dict[str, Any]:
+def monthly(org_id: str, year: int, month: int) -> dict[str, Any]:
     start, end = _month_range_utc(year, month)
-    invoices = _service_invoices_in(start, end)
+    invoices = _service_invoices_in(org_id, start, end)
     revenue = sum(int(inv.get("total_revenue") or 0) for inv in invoices)
     cost = sum(int(inv.get("total_cost") or 0) for inv in invoices)
     return {
@@ -75,7 +71,7 @@ def monthly(year: int, month: int) -> dict[str, Any]:
 
 
 def top_products(
-    period: str = "month", limit: int = 10
+    org_id: str, period: str = "month", limit: int = 10
 ) -> list[dict[str, Any]]:
     """Top products by profit contribution over the given period.
     period ∈ {"day", "week", "month"}."""
@@ -89,7 +85,7 @@ def top_products(
     else:
         start, end = _month_range_utc(today.year, today.month)
 
-    invoices = _service_invoices_in(start, end)
+    invoices = _service_invoices_in(org_id, start, end)
     by_sku: dict[str, dict[str, Any]] = {}
     for inv in invoices:
         for item in inv.get("items") or []:
@@ -115,10 +111,10 @@ def top_products(
     return sorted(by_sku.values(), key=lambda r: r["profit"], reverse=True)[:limit]
 
 
-def revenue_summary(from_date: date, to_date: date) -> dict[str, Any]:
+def revenue_summary(org_id: str, from_date: date, to_date: date) -> dict[str, Any]:
     start, _ = _day_range_utc(from_date)
     _, end = _day_range_utc(to_date)
-    invoices = _service_invoices_in(start, end)
+    invoices = _service_invoices_in(org_id, start, end)
     revenue = sum(int(inv.get("total_revenue") or 0) for inv in invoices)
     cost = sum(int(inv.get("total_cost") or 0) for inv in invoices)
     return {

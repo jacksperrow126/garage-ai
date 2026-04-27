@@ -26,27 +26,26 @@ from google.cloud import firestore
 from google.cloud.firestore_v1 import DocumentReference
 
 from app.auth import Principal
-from app.firestore import get_db, server_timestamp
+from app.firestore import get_db, org_collection, server_timestamp
 from app.models.invoice import (
     ImportInvoiceCreate,
-    ImportInvoiceItemIn,
     ServiceInvoiceCreate,
-    ServiceInvoiceItemIn,
 )
 from app.services import audit
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
 
-def _product_ref(sku: str) -> DocumentReference:
-    return get_db().collection("products").document(sku)
+def _product_ref(org_id: str, sku: str) -> DocumentReference:
+    return org_collection(org_id, "products").document(sku)
 
 
-def _invoice_ref() -> DocumentReference:
-    return get_db().collection("invoices").document()
+def _invoice_ref(org_id: str) -> DocumentReference:
+    return org_collection(org_id, "invoices").document()
 
 
 def _stock_move(
+    org_id: str,
     tx: firestore.Transaction,
     *,
     product_id: str,
@@ -60,7 +59,7 @@ def _stock_move(
     avg_cost_after: int,
     actor: str,
 ) -> None:
-    ref = get_db().collection("stock_moves").document()
+    ref = org_collection(org_id, "stock_moves").document()
     tx.set(
         ref,
         {
@@ -81,10 +80,12 @@ def _stock_move(
 
 # ── Import invoice ──────────────────────────────────────────────────────
 
-def create_import_invoice(data: ImportInvoiceCreate, principal: Principal) -> dict[str, Any]:
+def create_import_invoice(
+    org_id: str, data: ImportInvoiceCreate, principal: Principal
+) -> dict[str, Any]:
     db = get_db()
-    invoice_ref = _invoice_ref()
-    product_refs = [_product_ref(item.sku) for item in data.items]
+    invoice_ref = _invoice_ref(org_id)
+    product_refs = [_product_ref(org_id, item.sku) for item in data.items]
     actor = principal.audit_actor
 
     @firestore.transactional
@@ -121,8 +122,8 @@ def create_import_invoice(data: ImportInvoiceCreate, principal: Principal) -> di
                     "description": item.description or p.get("name", item.sku),
                     "quantity": item.quantity,
                     "unit_price": item.unit_price,
-                    "cost_price": item.unit_price,  # import: cost == unit_price
-                    "line_total_revenue": line_cost,  # not really revenue, kept for schema symmetry
+                    "cost_price": item.unit_price,
+                    "line_total_revenue": line_cost,
                     "line_total_cost": line_cost,
                 }
             )
@@ -150,6 +151,7 @@ def create_import_invoice(data: ImportInvoiceCreate, principal: Principal) -> di
 
         for item, (_, _, mv) in zip(data.items, product_updates, strict=True):
             _stock_move(
+                org_id,
                 tx,
                 product_id=item.sku,
                 sku=item.sku,
@@ -173,7 +175,7 @@ def create_import_invoice(data: ImportInvoiceCreate, principal: Principal) -> di
             "customer_id": None,
             "customer_name": None,
             "items": now_lines,
-            "total_revenue": total_cost,  # for imports, revenue = cost (money out)
+            "total_revenue": total_cost,
             "total_cost": total_cost,
             "profit": None,
             "notes": data.notes,
@@ -181,6 +183,7 @@ def create_import_invoice(data: ImportInvoiceCreate, principal: Principal) -> di
         tx.set(invoice_ref, {**invoice_doc, "created_at": server_timestamp()})
 
         audit.log(
+            org_id,
             "create_import_invoice",
             actor,
             payload={"supplier": data.supplier_name, "items": [i.model_dump() for i in data.items]},
@@ -195,18 +198,18 @@ def create_import_invoice(data: ImportInvoiceCreate, principal: Principal) -> di
 
 # ── Service invoice (sale / repair) ─────────────────────────────────────
 
-def create_service_invoice(data: ServiceInvoiceCreate, principal: Principal) -> dict[str, Any]:
+def create_service_invoice(
+    org_id: str, data: ServiceInvoiceCreate, principal: Principal
+) -> dict[str, Any]:
     db = get_db()
-    invoice_ref = _invoice_ref()
+    invoice_ref = _invoice_ref(org_id)
     actor = principal.audit_actor
 
-    # Only product lines need a product ref; labor lines don't.
     product_skus = [item.sku for item in data.items if item.sku]
-    product_refs = {sku: _product_ref(sku) for sku in product_skus}
+    product_refs = {sku: _product_ref(org_id, sku) for sku in product_skus}
 
     @firestore.transactional
     def _tx(tx: firestore.Transaction) -> dict[str, Any]:
-        # ── READS ──
         snaps = {sku: ref.get(transaction=tx) for sku, ref in product_refs.items()}
         missing = [sku for sku, snap in snaps.items() if not snap.exists]
         if missing:
@@ -215,9 +218,8 @@ def create_service_invoice(data: ServiceInvoiceCreate, principal: Principal) -> 
                 f"unknown SKU(s): {', '.join(missing)}",
             )
 
-        # ── COMPUTE + VALIDATE stock ──
         now_lines: list[dict[str, Any]] = []
-        stock_updates: dict[str, dict[str, int]] = {}  # sku → update fields
+        stock_updates: dict[str, dict[str, int]] = {}
 
         total_revenue = 0
         total_cost = 0
@@ -233,7 +235,6 @@ def create_service_invoice(data: ServiceInvoiceCreate, principal: Principal) -> 
                         f"insufficient stock for {item.sku}: have {old_qty}, need {item.quantity}",
                     )
                 new_qty = old_qty - item.quantity
-                # cost snapshot at sale time — this is what profit is computed against
                 cost_price = old_avg
                 line_revenue = item.quantity * item.unit_price
                 line_cost = item.quantity * cost_price
@@ -254,14 +255,13 @@ def create_service_invoice(data: ServiceInvoiceCreate, principal: Principal) -> 
                     "old_qty": old_qty,
                     "new_qty": new_qty,
                     "old_avg": old_avg,
-                    "new_avg": old_avg,  # selling doesn't change avg cost
+                    "new_avg": old_avg,
                 }
                 total_revenue += line_revenue
                 total_cost += line_cost
             else:
-                # Labor line — no inventory, no cost
                 line_revenue = item.quantity * item.unit_price
-                assert item.description is not None  # Pydantic validator enforces
+                assert item.description is not None
                 now_lines.append(
                     {
                         "product_id": None,
@@ -276,7 +276,6 @@ def create_service_invoice(data: ServiceInvoiceCreate, principal: Principal) -> 
                 )
                 total_revenue += line_revenue
 
-        # ── WRITES ──
         for sku, mv in stock_updates.items():
             tx.update(
                 product_refs[sku],
@@ -288,6 +287,7 @@ def create_service_invoice(data: ServiceInvoiceCreate, principal: Principal) -> 
                 continue
             mv = stock_updates[item.sku]
             _stock_move(
+                org_id,
                 tx,
                 product_id=item.sku,
                 sku=item.sku,
@@ -319,6 +319,7 @@ def create_service_invoice(data: ServiceInvoiceCreate, principal: Principal) -> 
         tx.set(invoice_ref, {**invoice_doc, "created_at": server_timestamp()})
 
         audit.log(
+            org_id,
             "create_service_invoice",
             actor,
             payload={
@@ -341,17 +342,13 @@ def create_service_invoice(data: ServiceInvoiceCreate, principal: Principal) -> 
 # ── Adjustments ─────────────────────────────────────────────────────────
 
 def create_adjustment(
-    invoice_id: str, adj_type: str, reason: str, principal: Principal
+    org_id: str, invoice_id: str, adj_type: str, reason: str, principal: Principal
 ) -> dict[str, Any]:
     """V1 adjustment model is record-only: marks the original invoice as
-    `adjusted` and writes an `adjustments/` doc with the reason. To actually
-    reverse stock/profit, the operator creates a new inverse invoice. This
-    keeps the transactional logic simple and auditable; richer reversal
-    semantics can come in v2 if needed.
-    """
+    `adjusted` and writes an `adjustments/` doc with the reason."""
     db = get_db()
-    inv_ref = db.collection("invoices").document(invoice_id)
-    adj_ref = db.collection("adjustments").document()
+    inv_ref = org_collection(org_id, "invoices").document(invoice_id)
+    adj_ref = org_collection(org_id, "adjustments").document()
     actor = principal.audit_actor
 
     @firestore.transactional
@@ -374,6 +371,7 @@ def create_adjustment(
         tx.update(inv_ref, {"status": "adjusted"})
 
         audit.log(
+            org_id,
             "create_adjustment",
             actor,
             payload={"invoice_id": invoice_id, "type": adj_type, "reason": reason},

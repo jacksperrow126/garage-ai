@@ -18,13 +18,13 @@ from google.cloud import firestore
 
 from app.auth import Principal
 from app.config import get_settings
-from app.firestore import get_db, server_timestamp
+from app.firestore import get_db, org_collection, server_timestamp
 from app.models.product import ProductCreate, ProductUpdate
 from app.services import audit
 
 
-def _product_ref(sku: str) -> firestore.DocumentReference:
-    return get_db().collection("products").document(sku)
+def _product_ref(org_id: str, sku: str) -> firestore.DocumentReference:
+    return org_collection(org_id, "products").document(sku)
 
 
 def _sku_base_from_name(name: str) -> str:
@@ -35,23 +35,21 @@ def _sku_base_from_name(name: str) -> str:
     return base or "PRODUCT"
 
 
-def create_product(data: ProductCreate, principal: Principal) -> dict[str, Any]:
+def create_product(org_id: str, data: ProductCreate, principal: Principal) -> dict[str, Any]:
     actor = principal.audit_actor
     base = _sku_base_from_name(data.name) if data.sku is None else data.sku
 
     @firestore.transactional
     def _tx(tx: firestore.Transaction) -> dict[str, Any]:
-        # If the caller passed an explicit SKU, a collision is an error.
-        # If we're auto-deriving, probe suffixed candidates until free.
         if data.sku is not None:
             sku = data.sku
-            ref = _product_ref(sku)
+            ref = _product_ref(org_id, sku)
             if ref.get(transaction=tx).exists:
                 raise HTTPException(status.HTTP_409_CONFLICT, f"SKU {sku} already exists")
         else:
             sku = base
             for n in range(2, 100):
-                ref = _product_ref(sku)
+                ref = _product_ref(org_id, sku)
                 if not ref.get(transaction=tx).exists:
                     break
                 suffix = f"-{n:02d}"
@@ -60,7 +58,7 @@ def create_product(data: ProductCreate, principal: Principal) -> dict[str, Any]:
                 raise HTTPException(
                     status.HTTP_409_CONFLICT, "could not derive a unique SKU from name"
                 )
-            ref = _product_ref(sku)
+            ref = _product_ref(org_id, sku)
 
         now = datetime.now(UTC)
         doc = {
@@ -72,11 +70,9 @@ def create_product(data: ProductCreate, principal: Principal) -> dict[str, Any]:
             "last_import_price": 0,
             "active": True,
         }
-        # Firestore gets the authoritative server time via sentinels; the
-        # dict we return to the HTTP layer uses a real datetime so pydantic
-        # can serialize it (sentinels are not JSON-encodable).
         tx.set(ref, {**doc, "created_at": server_timestamp(), "updated_at": server_timestamp()})
         audit.log(
+            org_id,
             "add_product",
             actor,
             payload={**data.model_dump(), "sku": sku},
@@ -88,8 +84,10 @@ def create_product(data: ProductCreate, principal: Principal) -> dict[str, Any]:
     return _tx(get_db().transaction())
 
 
-def update_product(sku: str, data: ProductUpdate, principal: Principal) -> dict[str, Any]:
-    ref = _product_ref(sku)
+def update_product(
+    org_id: str, sku: str, data: ProductUpdate, principal: Principal
+) -> dict[str, Any]:
+    ref = _product_ref(org_id, sku)
     actor = principal.audit_actor
     updates = data.model_dump(exclude_none=True)
     if not updates:
@@ -103,6 +101,7 @@ def update_product(sku: str, data: ProductUpdate, principal: Principal) -> dict[
             raise HTTPException(status.HTTP_404_NOT_FOUND, "product not found")
         tx.update(ref, {**updates, "updated_at": server_timestamp()})
         audit.log(
+            org_id,
             "update_product",
             actor,
             payload={"sku": sku, "fields": updates},
@@ -114,16 +113,18 @@ def update_product(sku: str, data: ProductUpdate, principal: Principal) -> dict[
     return _tx(get_db().transaction())
 
 
-def get_product(sku: str) -> dict[str, Any] | None:
-    snap = _product_ref(sku).get()
+def get_product(org_id: str, sku: str) -> dict[str, Any] | None:
+    snap = _product_ref(org_id, sku).get()
     if not snap.exists:
         return None
     return {"id": sku, **(snap.to_dict() or {})}
 
 
-def list_products(query: str | None = None, low_stock_only: bool = False) -> list[dict[str, Any]]:
+def list_products(
+    org_id: str, query: str | None = None, low_stock_only: bool = False
+) -> list[dict[str, Any]]:
     settings = get_settings()
-    col = get_db().collection("products")
+    col = org_collection(org_id, "products")
     q: firestore.Query = col  # type: ignore[assignment]
     if low_stock_only:
         q = q.where("quantity", "<=", settings.low_stock_threshold)
@@ -135,7 +136,7 @@ def list_products(query: str | None = None, low_stock_only: bool = False) -> lis
 
 
 def manual_correction(
-    sku: str, new_quantity: int, reason: str, principal: Principal
+    org_id: str, sku: str, new_quantity: int, reason: str, principal: Principal
 ) -> dict[str, Any]:
     """Owner-only break-glass stock correction (physical recount). Does NOT
     change avg_cost — corrections adjust the head-count without implying a
@@ -145,8 +146,8 @@ def manual_correction(
     if new_quantity < 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "quantity must be >= 0")
 
-    ref = _product_ref(sku)
-    move_ref = get_db().collection("stock_moves").document()
+    ref = _product_ref(org_id, sku)
+    move_ref = org_collection(org_id, "stock_moves").document()
     actor = principal.audit_actor
 
     @firestore.transactional
@@ -178,6 +179,7 @@ def manual_correction(
             },
         )
         audit.log(
+            org_id,
             "manual_correction",
             actor,
             payload={"sku": sku, "new_quantity": new_quantity, "reason": reason},

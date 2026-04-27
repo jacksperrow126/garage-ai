@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     # Comma-separated origins; parsed into a list on access
     admin_origins: str = "http://localhost:3000"
 
+    # Default org_id for REST routes when X-Org-ID header is absent.
+    # Single-tenant fallback during multi-tenant rollout — admin-panel
+    # callers can override per-request.
+    default_org_id: str = "garage-chinh"
+
     # Agent authentication — same key used for X-API-Key on REST and Bearer
     # on /mcp/. Name kept for backwards compat with existing Cloud Run env.
     openclaw_api_key: str

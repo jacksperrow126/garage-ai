@@ -60,6 +60,14 @@ def agent() -> Principal:
     return Principal(actor="agent", uid="openclaw", role="manager")
 
 
+@pytest.fixture
+def org_id() -> str:
+    """All multi-tenant tests run inside this fake org. Firestore lazily
+    creates the parent doc when subcollection writes happen, so no explicit
+    bootstrap is needed for read/write paths to work."""
+    return "test-org"
+
+
 @pytest.fixture(autouse=True)
 def _reset_firestore() -> Generator[None, None, None]:
     """Wipe the emulator before every test via its REST admin endpoint."""

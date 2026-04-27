@@ -2,10 +2,11 @@ from typing import Any
 
 from google.cloud import firestore
 
-from app.firestore import get_db, server_timestamp
+from app.firestore import org_collection, server_timestamp
 
 
 def log(
+    org_id: str,
     action: str,
     actor: str,
     *,
@@ -13,13 +14,12 @@ def log(
     result: dict[str, Any] | None = None,
     tx: firestore.Transaction | None = None,
 ) -> None:
-    """Append an immutable audit entry.
+    """Append an immutable audit entry under organizations/{org_id}/audit_logs.
 
     If called inside a transaction, the write is staged on that transaction.
     Otherwise we write immediately with the batching client.
     """
-    db = get_db()
-    ref = db.collection("audit_logs").document()
+    ref = org_collection(org_id, "audit_logs").document()
     data = {
         "actor": actor,
         "action": action,
