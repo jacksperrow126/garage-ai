@@ -152,19 +152,30 @@ async def reply(
         betas=[MCP_BETA],
     )
 
-    text_parts: list[str] = []
-    mcp_calls = 0
+    # Persist the FULL block list (preamble + tool_use + tool_result + answer)
+    # so the next turn replays complete context to Claude. But only forward
+    # to Zalo the text that comes *after* the last tool call — anything
+    # before that is the model thinking out loud ("Cho mình tìm khách…")
+    # and just adds noise in chat.
     content_blocks: list[dict] = []
-    for block in resp.content:
+    last_tool_idx = -1
+    mcp_calls = 0
+    for i, block in enumerate(resp.content):
         block_dict = (
             block.model_dump(mode="json") if hasattr(block, "model_dump") else dict(block)
         )
         content_blocks.append(block_dict)
         btype = getattr(block, "type", None)
-        if btype == "text":
-            text_parts.append(block.text)
-        elif btype in ("mcp_tool_use", "tool_use"):
+        if btype in ("mcp_tool_use", "tool_use"):
             mcp_calls += 1
+            last_tool_idx = i
+
+    text_parts: list[str] = []
+    for i, block in enumerate(resp.content):
+        if i <= last_tool_idx:
+            continue
+        if getattr(block, "type", None) == "text":
+            text_parts.append(block.text)
 
     final_text = "\n\n".join(p.strip() for p in text_parts if p.strip())
     log.info(
