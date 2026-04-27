@@ -69,12 +69,16 @@ def _get_client() -> AsyncAnthropic:
     return _client
 
 
-async def reply(user_text: str, history: list[dict] | None = None) -> str:
-    """Run one Zalo turn through Claude + MCP, return the final assistant text.
+async def reply(
+    user_text: str,
+    history: list[dict] | None = None,
+) -> tuple[str, list[dict]]:
+    """Run one Zalo turn through Claude + MCP.
 
-    `history` is the prior message list (Anthropic format). Phase 2 calls
-    this with history=None (single-turn). Phase 3 will pass persisted
-    history + serialize the new turn back."""
+    Returns `(final_text, assistant_content_blocks)`. Caller is expected to
+    persist `user_text` as a user turn and `assistant_content_blocks` as
+    the matching assistant turn so two-phase confirms (preview → "ok" →
+    confirm) work across Zalo messages."""
     settings = get_settings()
     client = _get_client()
 
@@ -105,7 +109,13 @@ async def reply(user_text: str, history: list[dict] | None = None) -> str:
 
     text_parts: list[str] = []
     mcp_calls = 0
+    content_blocks: list[dict] = []
     for block in resp.content:
+        # Serialize to JSON-safe dict for Firestore + replay on next turn.
+        block_dict = (
+            block.model_dump(mode="json") if hasattr(block, "model_dump") else dict(block)
+        )
+        content_blocks.append(block_dict)
         btype = getattr(block, "type", None)
         if btype == "text":
             text_parts.append(block.text)
@@ -114,14 +124,15 @@ async def reply(user_text: str, history: list[dict] | None = None) -> str:
 
     final_text = "\n\n".join(p.strip() for p in text_parts if p.strip())
     log.info(
-        "agent: model=%s stop=%s mcp_calls=%d reply_chars=%d",
+        "agent: model=%s stop=%s mcp_calls=%d reply_chars=%d history=%d",
         settings.agent_model,
         getattr(resp, "stop_reason", "?"),
         mcp_calls,
         len(final_text),
+        len(history or []),
     )
 
     if not final_text:
         # Defensive fallback — shouldn't happen, but the user must get *something*.
-        return "Xin lỗi, em đang gặp lỗi. Anh thử lại sau nhé."
-    return final_text
+        final_text = "Xin lỗi, em đang gặp lỗi. Anh thử lại sau nhé."
+    return final_text, content_blocks

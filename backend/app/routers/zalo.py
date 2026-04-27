@@ -24,7 +24,7 @@ from google.cloud.firestore import Client
 
 from app.config import get_settings
 from app.firestore import get_db, server_timestamp
-from app.services import agent, zalo_client
+from app.services import agent, conversation, zalo_client
 
 log = logging.getLogger(__name__)
 
@@ -55,14 +55,16 @@ def _claim_message(db: Client, message_id: str) -> bool:
         return False
 
 
-async def _process_message(chat_id: str, text: str) -> None:
+async def _process_message(user_id: str, chat_id: str, text: str) -> None:
     """Background task: run the LLM and send the reply.
 
     Errors are logged but never re-raised — we've already 200-acked the
     webhook, and crashing here just produces a Cloud Run error log without
     helping the user. We do try to send a polite Vietnamese error reply."""
+    history = conversation.load(user_id)
+    assistant_content: list[dict] | None = None
     try:
-        reply_text = await agent.reply(text)
+        reply_text, assistant_content = await agent.reply(text, history=history)
     except Exception as exc:
         log.exception("agent.reply failed: %s", exc)
         reply_text = "Xin lỗi, em đang gặp lỗi. Anh thử lại sau nhé."
@@ -71,6 +73,14 @@ async def _process_message(chat_id: str, text: str) -> None:
         await zalo_client.send_message(chat_id, reply_text)
     except Exception as exc:
         log.exception("zalo send failed: %s", exc)
+
+    # Only persist successful turns. On error we want the user's next message
+    # to start fresh rather than re-trigger Claude on a broken state.
+    if assistant_content is not None:
+        try:
+            conversation.append_turn(user_id, text, assistant_content)
+        except Exception as exc:
+            log.exception("conversation persist failed: %s", exc)
 
 
 @router.post("/webhook")
@@ -125,5 +135,5 @@ async def webhook(
         return {"message": "Success"}
 
     log.info("zalo: dispatching turn from %s (msg=%s)", sender, message_id)
-    bg.add_task(_process_message, chat_id, text)
+    bg.add_task(_process_message, sender, chat_id, text)
     return {"message": "Success"}
