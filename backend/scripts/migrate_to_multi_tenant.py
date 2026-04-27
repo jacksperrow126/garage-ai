@@ -37,14 +37,28 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from google.cloud import firestore
 
+from app.auth import Principal
 from app.firestore import get_db
-from app.services import orgs, zalo_users
+from app.models.customer import CustomerCreate
+from app.models.invoice import (
+    ImportInvoiceCreate,
+    ImportInvoiceItemIn,
+    ServiceInvoiceCreate,
+    ServiceInvoiceItemIn,
+)
+from app.models.product import ProductCreate
+from app.models.supplier import SupplierCreate
+from app.services import customers, inventory, invoices, orgs, suppliers, zalo_users
 
 # Hard-coded — single-shop, single-admin scenario. The Zalo ID was captured
 # from the first webhook trace; if it ever changes, edit here.
 ADMIN_ZALO_ID = "8f705344d20d3b53621c"
 ADMIN_NAME = "Owner"
-FIRST_ORG_NAME = "Garage Chính"
+FIRST_ORG_NAME = "Garage Test"
+
+# Synthetic principal used by the seeder so audit logs cleanly attribute
+# bootstrap rows to "user:bootstrap" instead of mixing them with real activity.
+BOOTSTRAP = Principal(actor="user", uid="bootstrap", role="owner")
 
 LEGACY_COLLECTIONS = [
     "products",
@@ -106,10 +120,9 @@ def wipe_existing_orgs(dry_run: bool) -> None:
         print(f"  {verb} {count:>5} docs from /{name}")
 
 
-def bootstrap() -> None:
-    """Create the admin Zalo user and the first org. Idempotent in the
-    sense that orgs.create_org generates a fresh slug if "garage-chinh"
-    already exists — but we wiped above, so fresh creation is expected."""
+def bootstrap() -> str:
+    """Create the admin Zalo user and the first org. Returns the new
+    org_id so callers (e.g. the seeder) can scope test data correctly."""
     print(f"  creating zalo_users/{ADMIN_ZALO_ID} as admin")
     zalo_users.upsert(
         ADMIN_ZALO_ID,
@@ -124,6 +137,84 @@ def bootstrap() -> None:
 
     print(f"  setting primary_org_id={org['id']} on admin")
     zalo_users.set_primary_org(ADMIN_ZALO_ID, org["id"])
+    return org["id"]
+
+
+def seed_test_data(org_id: str) -> None:
+    """Populate the test org with realistic data running through the real
+    service layer — every row goes through transactions, every change
+    leaves an audit log, moving-average cost is computed honestly."""
+    print(f"  seeding products + import invoice into /{org_id}/")
+    # 1. Create the products (qty=0, just defines selling price + SKU)
+    products_spec = [
+        ("Dầu nhớt 5W-30", "DAUNHOT5W30", 200_000),
+        ("Lọc gió", "LOCGIO", 120_000),
+        ("Bugi NGK", "BUGI", 50_000),
+        ("Lốp xe Michelin 185/65R15", "LOPXE", 1_500_000),
+        ("Phanh dầu DOT 4", "PHANHDAU", 80_000),
+    ]
+    for name, sku, price in products_spec:
+        inventory.create_product(
+            org_id,
+            ProductCreate(name=name, sku=sku, selling_price=price),
+            BOOTSTRAP,
+        )
+
+    # 2. Supplier
+    sup = suppliers.create(
+        org_id,
+        SupplierCreate(name="NCC Castrol", phone="0911111111"),
+        BOOTSTRAP,
+    )
+
+    # 3. Import invoice — gives every product realistic quantity + avg_cost
+    print("  seeding 1 import invoice (5 items)")
+    invoices.create_import_invoice(
+        org_id,
+        ImportInvoiceCreate(
+            supplier_id=sup["id"],
+            supplier_name="NCC Castrol",
+            items=[
+                ImportInvoiceItemIn(sku="DAUNHOT5W30", quantity=10, unit_price=150_000),
+                ImportInvoiceItemIn(sku="LOCGIO", quantity=8, unit_price=80_000),
+                ImportInvoiceItemIn(sku="BUGI", quantity=20, unit_price=30_000),
+                ImportInvoiceItemIn(sku="LOPXE", quantity=4, unit_price=1_200_000),
+                ImportInvoiceItemIn(sku="PHANHDAU", quantity=6, unit_price=50_000),
+            ],
+            notes="Bootstrap test import",
+        ),
+        BOOTSTRAP,
+    )
+
+    # 4. Customers
+    print("  seeding 3 customers")
+    cust_tuan = customers.create(
+        org_id, CustomerCreate(name="Anh Tuấn", phone="0901111111"), BOOTSTRAP
+    )
+    customers.create(
+        org_id, CustomerCreate(name="Chị Mai", phone="0902222222"), BOOTSTRAP
+    )
+    customers.create(
+        org_id, CustomerCreate(name="Anh Bình", phone="0903333333"), BOOTSTRAP
+    )
+
+    # 5. One service invoice (so reports have something to show)
+    print("  seeding 1 service invoice (sale to anh Tuấn)")
+    invoices.create_service_invoice(
+        org_id,
+        ServiceInvoiceCreate(
+            customer_id=cust_tuan["id"],
+            customer_name="Anh Tuấn",
+            items=[
+                ServiceInvoiceItemIn(sku="DAUNHOT5W30", quantity=1, unit_price=200_000),
+                ServiceInvoiceItemIn(
+                    description="Công thay dầu", quantity=1, unit_price=100_000
+                ),
+            ],
+            notes="Bootstrap test sale",
+        ),
+        BOOTSTRAP,
+    )
 
 
 def main() -> None:
@@ -131,6 +222,11 @@ def main() -> None:
     grp = parser.add_mutually_exclusive_group(required=True)
     grp.add_argument("--dry-run", action="store_true", help="preview deletions, no writes")
     grp.add_argument("--yes", action="store_true", help="actually wipe + bootstrap")
+    parser.add_argument(
+        "--skip-seed",
+        action="store_true",
+        help="skip seeding test products / customers / invoices (use for the real shop later)",
+    )
     args = parser.parse_args()
 
     project = os.environ.get("GOOGLE_CLOUD_PROJECT", "(unset)")
@@ -152,8 +248,14 @@ def main() -> None:
         return
 
     print("== Step 3: bootstrap admin + first org ==")
-    bootstrap()
+    org_id = bootstrap()
     print()
+
+    if not args.skip_seed:
+        print("== Step 4: seed test data ==")
+        seed_test_data(org_id)
+        print()
+
     print("Done. Now deploy the multi-tenant code.")
 
 

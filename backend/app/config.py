@@ -14,9 +14,9 @@ class Settings(BaseSettings):
     admin_origins: str = "http://localhost:3000"
 
     # Default org_id for REST routes when X-Org-ID header is absent.
-    # Single-tenant fallback during multi-tenant rollout — admin-panel
-    # callers can override per-request.
-    default_org_id: str = "garage-chinh"
+    # Currently the test org used during multi-tenant rollout; will flip
+    # to the real shop's slug when one is created via the bot.
+    default_org_id: str = "garage-test"
 
     # Agent authentication — same key used for X-API-Key on REST and Bearer
     # on /mcp/. Name kept for backwards compat with existing Cloud Run env.
