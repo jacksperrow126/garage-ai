@@ -171,24 +171,6 @@ async def webhook(
         log.warning("zalo: malformed message envelope: %s", body)
         return {"message": "Success"}
 
-    settings = get_settings()
-    allowed = settings.zalo_allowed_user_id_set
-
-    if not allowed:
-        # Log-only "capture" mode: no reply, just print the sender id so
-        # the operator can copy it into ZALO_ALLOWED_USER_IDS.
-        log.info(
-            "zalo: log-only mode — capture this id and add to "
-            "ZALO_ALLOWED_USER_IDS: %s (text=%r)",
-            sender,
-            text[:80],
-        )
-        return {"message": "Success"}
-
-    if sender not in allowed:
-        log.warning("zalo: rejecting sender %s (not in allowlist)", sender)
-        return {"message": "Success"}
-
     if not _claim_message(get_db(), message_id):
         log.info("zalo: duplicate message_id %s — skipping", message_id)
         return {"message": "Success"}

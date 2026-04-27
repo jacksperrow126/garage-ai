@@ -43,18 +43,10 @@ class Settings(BaseSettings):
     # Random secret we generate and pass to setWebhook; Zalo sends it back
     # on every webhook in X-Bot-Api-Secret-Token.
     zalo_webhook_secret: str = ""
-    # Comma-separated Zalo user IDs (from `result.message.from.id`) allowed
-    # to chat with the bot. Empty = log-only mode (any sender, see logs to
-    # capture IDs, then add them here).
-    zalo_allowed_user_ids: str = ""
 
     @property
     def admin_origin_list(self) -> list[str]:
         return [o.strip() for o in self.admin_origins.split(",") if o.strip()]
-
-    @property
-    def zalo_allowed_user_id_set(self) -> set[str]:
-        return {u.strip() for u in self.zalo_allowed_user_ids.split(",") if u.strip()}
 
     @property
     def is_local(self) -> bool:
