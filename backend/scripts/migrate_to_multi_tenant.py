@@ -79,21 +79,26 @@ def _delete_collection_recursive(
 ) -> int:
     """Recursively delete every doc in `col`, descending into any subcollections.
 
-    Returns the number of documents deleted (or that would be, on dry run)."""
+    Uses `list_documents()` instead of `stream()` so we also visit "phantom"
+    parent docs — refs that exist only because they have subcollections
+    underneath (e.g. `conversations/{zalo_id}` has no fields itself, only
+    a `messages/` subcollection). `stream()` would skip those and we'd
+    leave the subcollection orphaned.
+
+    Returns the number of *actual* documents deleted (or that would be,
+    on dry run). Phantom parents don't count toward that total."""
     deleted = 0
-    while True:
-        docs = list(col.limit(batch_size).stream())
-        if not docs:
-            break
-        for snap in docs:
-            ref = snap.reference
-            for sub in ref.collections():
-                deleted += _delete_collection_recursive(sub, batch_size, dry_run)
+    for ref in col.list_documents(page_size=batch_size):
+        for sub in ref.collections():
+            deleted += _delete_collection_recursive(sub, batch_size, dry_run)
+        # Only the docs that actually carry data count + are physically
+        # deleted; phantom parents disappear automatically once their
+        # subcollections are empty.
+        snap = ref.get()
+        if snap.exists:
             if not dry_run:
                 ref.delete()
             deleted += 1
-        if len(docs) < batch_size:
-            break
     return deleted
 
 
