@@ -5,11 +5,16 @@ embedded in the URL path (Telegram-style); no Authorization header needed.
 
 Per Zalo docs, sendMessage caps text at 2000 chars — longer replies are
 split on paragraph / sentence boundaries.
+
+Zalo chat is plain-text only — no markdown rendering. Any `**bold**` /
+`*italic*` / `# heading` / `` `code` `` produced by the LLM has to be
+stripped here, otherwise the user sees the literal markup characters.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 
 import httpx
 
@@ -19,6 +24,25 @@ log = logging.getLogger(__name__)
 
 ZALO_BASE = "https://bot-api.zaloplatforms.com"
 MAX_LEN = 2000
+
+# Strip in this order: bold (`**x**`, `__x__`) before italic (`*x*`, `_x_`)
+# so we don't half-eat a `**`. Inline code last; headers separately.
+_BOLD = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+_BOLD_UNDERSCORE = re.compile(r"__(.+?)__", re.DOTALL)
+_ITALIC_STAR = re.compile(r"(?<!\*)\*([^*\n]+?)\*(?!\*)")
+_INLINE_CODE = re.compile(r"`([^`\n]+?)`")
+_HEADER = re.compile(r"^\s*#{1,6}\s+", re.MULTILINE)
+
+
+def strip_markdown(text: str) -> str:
+    """Remove the markdown formatting Claude tends to emit. Keep newlines,
+    list numbers (`1. foo`), and emojis — those render fine in Zalo."""
+    text = _BOLD.sub(r"\1", text)
+    text = _BOLD_UNDERSCORE.sub(r"\1", text)
+    text = _ITALIC_STAR.sub(r"\1", text)
+    text = _INLINE_CODE.sub(r"\1", text)
+    text = _HEADER.sub("", text)
+    return text
 
 
 def _split(text: str, limit: int = MAX_LEN) -> list[str]:
@@ -58,7 +82,7 @@ async def send_message(chat_id: str, text: str) -> None:
         return
 
     url = f"{ZALO_BASE}/bot{settings.zalo_bot_token}/sendMessage"
-    chunks = _split(text)
+    chunks = _split(strip_markdown(text))
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         for chunk in chunks:
