@@ -23,6 +23,7 @@ from pathlib import Path
 from anthropic import AsyncAnthropic
 
 from app.config import get_settings
+from app.services.zalo_attachments import ImageInput
 
 log = logging.getLogger(__name__)
 
@@ -112,19 +113,44 @@ async def reply(
     user_display_name: str | None = None,
     history: list[dict] | None = None,
     zalo_id: str = "",
+    image: ImageInput | None = None,
 ) -> tuple[str, list[dict]]:
     """Run one Zalo turn through Claude + MCP.
 
     Returns `(final_text, assistant_content_blocks)`. Caller is expected to
     persist `user_text` as a user turn and `assistant_content_blocks` as
-    the matching assistant turn so two-phase confirms (preview → "ok" →
+    the matching assistant turn so two-phase confirms (preview → user "ok" →
     confirm) work across Zalo messages.
+
+    `image` is optional — when set, prepended as an image content block
+    so Claude (vision-capable) can analyze the photo alongside any caption.
     """
     settings = get_settings()
     client = _get_client()
 
     messages: list[dict] = list(history or [])
-    messages.append({"role": "user", "content": user_text})
+    if image is not None:
+        # Anthropic's image content block — base64 source so we don't
+        # depend on Zalo CDN URLs being reachable from Anthropic's side.
+        user_content: list[dict] = [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": image.mime,
+                    "data": image.b64,
+                },
+            }
+        ]
+        # Always include a text block — even an empty caption — so Claude
+        # has a clear "user message" anchor and the API doesn't reject
+        # an image-only message.
+        user_content.append(
+            {"type": "text", "text": user_text or "(người dùng gửi ảnh)"}
+        )
+        messages.append({"role": "user", "content": user_content})
+    else:
+        messages.append({"role": "user", "content": user_text})
 
     resp = await client.beta.messages.create(
         model=settings.agent_model,
