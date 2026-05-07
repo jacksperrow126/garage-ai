@@ -1,8 +1,10 @@
 import { firebaseAuth } from "./firebase";
 
 /**
- * Thin fetch wrapper that attaches the current user's Firebase ID token.
- * All API routes in the FastAPI backend accept `Authorization: Bearer <token>`.
+ * Thin fetch wrapper that attaches the current user's Firebase ID token
+ * AND the X-Org-ID header for the org the user is currently viewing.
+ * All API routes in the FastAPI backend accept `Authorization: Bearer <token>`
+ * and gate access via `require_org_id` (auth.py).
  *
  * On App Hosting, `/api/**` is same-origin via the Next.js rewrite in
  * `next.config.ts`, so no CORS setup is needed in the browser.
@@ -14,11 +16,29 @@ export class ApiError extends Error {
   }
 }
 
+const ORG_ID_KEY = "garage-ai:selected-org-id";
+
+export function getSelectedOrgId(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(ORG_ID_KEY);
+}
+
+export function setSelectedOrgId(orgId: string | null): void {
+  if (typeof window === "undefined") return;
+  if (orgId) localStorage.setItem(ORG_ID_KEY, orgId);
+  else localStorage.removeItem(ORG_ID_KEY);
+}
+
 async function authHeaders(): Promise<HeadersInit> {
+  const headers: Record<string, string> = {};
   const user = firebaseAuth().currentUser;
-  if (!user) return {};
-  const token = await user.getIdToken();
-  return { Authorization: `Bearer ${token}` };
+  if (user) {
+    const token = await user.getIdToken();
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const orgId = getSelectedOrgId();
+  if (orgId) headers["X-Org-ID"] = orgId;
+  return headers;
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {

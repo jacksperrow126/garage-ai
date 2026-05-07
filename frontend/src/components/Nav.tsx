@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 
 import { firebaseAuth } from "@/lib/firebase";
 import { LOCALE_COOKIE } from "@/i18n/shared";
+import { OrgSwitcher } from "./OrgSwitcher";
 
 const items = [
   { href: "/", key: "dashboard" as const },
@@ -78,6 +79,10 @@ export function Nav() {
         </ul>
 
         <div className="flex-1 md:flex-none" />
+
+        <div className="flex items-center gap-2">
+          <OrgSwitcher />
+        </div>
 
         <div className="flex items-center gap-1 md:gap-1 md:pl-2 md:border-l md:border-slate-200/70">
           <button
