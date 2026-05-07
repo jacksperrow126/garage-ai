@@ -52,6 +52,11 @@ function LoginPageInner() {
         body: JSON.stringify({ token }),
       });
       if (!res.ok) {
+        // 403 means token is invalid OR expired (most common). Surface a
+        // user-actionable message instead of the raw FastAPI detail.
+        if (res.status === 403) {
+          throw new Error(t("auth.linkExpired"));
+        }
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || `Exchange failed (${res.status})`);
       }

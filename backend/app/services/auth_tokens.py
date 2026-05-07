@@ -44,10 +44,12 @@ def _b64url_decode(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
-def mint_login_token(zalo_id: str, ttl_seconds: int = 600) -> tuple[str, int]:
-    """Return (token, expires_at_unix). Default TTL is 10 minutes —
-    long enough for the brother to tap the link, short enough that a
-    leaked link expires before it's useful."""
+def mint_login_token(zalo_id: str, ttl_seconds: int = 1800) -> tuple[str, int]:
+    """Return (token, expires_at_unix). Default TTL is 30 minutes — long
+    enough that a casual chat lull doesn't expire the link before the
+    user taps it, short enough that a leaked link goes stale on the
+    same day. Bumped from 10 min after seeing real-world taps land
+    19 min after mint."""
     expires_at = int(time.time()) + ttl_seconds
     payload = json.dumps(
         {"z": zalo_id, "e": expires_at, "k": "login"},

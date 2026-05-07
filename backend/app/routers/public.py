@@ -92,6 +92,11 @@ def exchange_login_token(body: _LoginExchangeRequest) -> _LoginExchangeResponse:
     """
     claims = verify_login_token(body.token)
     if not claims:
+        # Log token prefix (not the full token — it's still valid until
+        # expiry, even if the verify call failed for non-expiry reasons).
+        # 8 chars is enough to correlate against the bot's mint event in
+        # audit logs without giving away the signature.
+        log.info("login.exchange: rejected token prefix=%r", body.token[:8])
         raise HTTPException(status.HTTP_403_FORBIDDEN, "invalid or expired link")
 
     zalo_id = claims["zalo_id"]

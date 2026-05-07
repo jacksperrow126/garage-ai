@@ -20,7 +20,8 @@
     "enter": "Enter dashboard",
     "enterHint": "Continue to your garage overview.",
     "devNotice": "Google sign-in is disabled during development.",
-    "signingIn": "Signing in from Zalo link..."
+    "signingIn": "Signing in from Zalo link...",
+    "linkExpired": "Link expired. Open Zalo and ask the bot 'đăng nhập web' for a new one."
   },
   "dashboard": {
     "today": "Today",

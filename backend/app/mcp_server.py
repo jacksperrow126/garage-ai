@@ -307,7 +307,7 @@ def confirm_action(org_id: str, preview_id: str) -> dict[str, Any]:
 # ── Admin tools (org access management) ─────────────────────────────────
 
 @mcp.tool()
-def get_login_url(zalo_id: str, ttl_minutes: int = 10) -> dict[str, Any]:
+def get_login_url(zalo_id: str, ttl_minutes: int = 30) -> dict[str, Any]:
     """Mint a one-time login URL for the admin web panel.
 
     Use when the user asks to log into / open / access the web admin
@@ -318,7 +318,8 @@ def get_login_url(zalo_id: str, ttl_minutes: int = 10) -> dict[str, Any]:
     The URL grants Firebase Auth as the corresponding zalo_users record;
     role + primary_org_id are persisted as custom claims so the admin
     panel knows who they are. Link expires after `ttl_minutes` (default
-    10) — short on purpose, since whoever holds the link can sign in.
+    30) — long enough for a casual chat lull, short enough that a
+    leaked link goes stale within the day.
 
     Returns: {"url": "https://<admin>/login?token=<jwt>", "expires_at_unix": int,
               "ttl_minutes": int}.

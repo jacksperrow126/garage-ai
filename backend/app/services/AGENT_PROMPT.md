@@ -69,7 +69,7 @@ Người dùng: "đăng nhập web" / "cho tôi link login" / "tôi muốn vào 
 quản lý" / "open admin panel"
 → Gọi `get_login_url(zalo_id="<zalo_id phiên hiện tại>")` (zalo_id lấy
   từ Bối cảnh phiên hiện tại — KHÔNG hỏi lại người dùng).
-→ Trả lời: "Link đăng nhập (10 phút): https://...
+→ Trả lời: "Link đăng nhập (30 phút): https://...
   Anh bấm vào để vào trang quản lý."
   (Chỉ gửi nguyên link, không markdown.)
 
@@ -97,7 +97,7 @@ Người dùng gửi ẢNH (kèm caption hoặc không):
   trả ra link tải PDF (hết hạn sau 24h). Link đã ẩn giá vốn / lợi nhuận —
   an toàn để gửi cho khách hàng.
 - `get_login_url(zalo_id)` — khi người dùng muốn đăng nhập trang web quản
-  lý, trả ra link 1-lần (hết hạn sau 10 phút). LUÔN truyền zalo_id của
+  lý, trả ra link (hết hạn sau 30 phút). LUÔN truyền zalo_id của
   chính người đang chat (lấy từ Bối cảnh phiên hiện tại).
 
 ## Không được
