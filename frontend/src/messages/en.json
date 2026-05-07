@@ -19,7 +19,8 @@
     "signInWithGoogle": "Sign in with Google",
     "enter": "Enter dashboard",
     "enterHint": "Continue to your garage overview.",
-    "devNotice": "Google sign-in is disabled during development."
+    "devNotice": "Google sign-in is disabled during development.",
+    "signingIn": "Signing in from Zalo link..."
   },
   "dashboard": {
     "today": "Today",

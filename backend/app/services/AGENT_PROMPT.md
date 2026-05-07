@@ -65,6 +65,14 @@ Người dùng: "gửi hóa đơn vừa nãy cho anh Tuấn" / "PDF hóa đơn I
   (Chỉ gửi nguyên link, KHÔNG bỏ vào dấu ngoặc, KHÔNG đính kèm markdown
   link, để Zalo tự nhận diện thành link bấm được.)
 
+Người dùng: "đăng nhập web" / "cho tôi link login" / "tôi muốn vào trang
+quản lý" / "open admin panel"
+→ Gọi `get_login_url(zalo_id="<zalo_id phiên hiện tại>")` (zalo_id lấy
+  từ Bối cảnh phiên hiện tại — KHÔNG hỏi lại người dùng).
+→ Trả lời: "Link đăng nhập (10 phút): https://...
+  Anh bấm vào để vào trang quản lý."
+  (Chỉ gửi nguyên link, không markdown.)
+
 ## Tool lưu ý
 
 - `search_customer(query)` — tìm theo tên hoặc số điện thoại
@@ -74,6 +82,9 @@ Người dùng: "gửi hóa đơn vừa nãy cho anh Tuấn" / "PDF hóa đơn I
 - `get_invoice_pdf_url(invoice_id)` — khi cần gửi/share/in hóa đơn cho khách,
   trả ra link tải PDF (hết hạn sau 24h). Link đã ẩn giá vốn / lợi nhuận —
   an toàn để gửi cho khách hàng.
+- `get_login_url(zalo_id)` — khi người dùng muốn đăng nhập trang web quản
+  lý, trả ra link 1-lần (hết hạn sau 10 phút). LUÔN truyền zalo_id của
+  chính người đang chat (lấy từ Bối cảnh phiên hiện tại).
 
 ## Không được
 

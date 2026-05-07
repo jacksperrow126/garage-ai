@@ -48,7 +48,9 @@ from app.services import (
     orgs,
     previews,
     reports,
+    zalo_users,
 )
+from app.services.auth_tokens import mint_login_token
 from app.services.pdf_tokens import mint_invoice_pdf_token
 
 AGENT = Principal(actor="agent", uid="openclaw", role="manager")
@@ -303,6 +305,45 @@ def confirm_action(org_id: str, preview_id: str) -> dict[str, Any]:
 
 
 # ── Admin tools (org access management) ─────────────────────────────────
+
+@mcp.tool()
+def get_login_url(zalo_id: str, ttl_minutes: int = 10) -> dict[str, Any]:
+    """Mint a one-time login URL for the admin web panel.
+
+    Use when the user asks to log into / open / access the web admin
+    (e.g. "đăng nhập web", "cho tôi link login", "tôi muốn vào trang
+    quản lý"). Pass the *calling user's own zalo_id* — the one in this
+    session's context block.
+
+    The URL grants Firebase Auth as the corresponding zalo_users record;
+    role + primary_org_id are persisted as custom claims so the admin
+    panel knows who they are. Link expires after `ttl_minutes` (default
+    10) — short on purpose, since whoever holds the link can sign in.
+
+    Returns: {"url": "https://<admin>/login?token=<jwt>", "expires_at_unix": int,
+              "ttl_minutes": int}.
+    """
+    # Refuse to mint a link for an unknown / un-onboarded zalo_id —
+    # otherwise we'd auto-create a Firebase user with no org membership.
+    user = zalo_users.get(zalo_id)
+    if not user:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"no zalo_users/{zalo_id} — request access first",
+        )
+    ttl_seconds = max(60, ttl_minutes * 60)
+    token, expires_at = mint_login_token(zalo_id, ttl_seconds)
+    base = get_settings().admin_base_url.rstrip("/")
+    url = f"{base}/login?token={token}"
+    audit.log(
+        user.get("primary_org_id") or "system",
+        "auth.mint_login_url",
+        AGENT.audit_actor,
+        payload={"zalo_id": zalo_id, "ttl_minutes": ttl_minutes},
+        result={"expires_at_unix": expires_at},
+    )
+    return {"url": url, "expires_at_unix": expires_at, "ttl_minutes": ttl_minutes}
+
 
 @mcp.tool()
 def list_organizations() -> list[dict[str, Any]]:

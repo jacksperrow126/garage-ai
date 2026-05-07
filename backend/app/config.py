@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     public_base_url: str = (
         "https://garage-ai-api-969667367100.asia-southeast1.run.app"
     )
+    # Admin frontend base URL — used by the bot to compose login links
+    # like https://<admin_base_url>/login?token=<jwt>.
+    admin_base_url: str = (
+        "https://garage-ai-admin--garage-manager-ai.asia-southeast1.hosted.app"
+    )
 
     # ── Zalo Bot ────────────────────────────────────────────────────────
     # Token from "Zalo Bot Manager" OA (format: "12345689:abc-xyz").

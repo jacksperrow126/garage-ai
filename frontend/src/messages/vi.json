@@ -19,7 +19,8 @@
     "signInWithGoogle": "Đăng nhập bằng Google",
     "enter": "Vào trang quản lý",
     "enterHint": "Tiếp tục để xem tổng quan garage.",
-    "devNotice": "Đăng nhập Google đang tạm tắt trong môi trường phát triển."
+    "devNotice": "Đăng nhập Google đang tạm tắt trong môi trường phát triển.",
+    "signingIn": "Đang đăng nhập từ link Zalo..."
   },
   "dashboard": {
     "today": "Hôm nay",
