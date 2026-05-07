@@ -58,6 +58,7 @@ def _session_context(
     display_name: str | None,
     zalo_id: str,
     onboarding_step: str | None = None,
+    image_unavailable: bool = False,
 ) -> str:
     """The short per-turn block that names the org, the caller's Zalo id,
     and tells Claude to thread `org_id` through every MCP tool call.
@@ -113,6 +114,19 @@ def _session_context(
             "  'Hoàn tất setup. Anh có thể: tạo hóa đơn, kiểm kho, xem báo cáo, "
             "hoặc nhắn \"đăng nhập web\" để mở trang quản lý. Cần gì cứ nhắn em.'"
         )
+    if image_unavailable:
+        base += (
+            "\n\n## NOTE: Người dùng vừa gửi ẢNH nhưng hệ thống không tải được\n\n"
+            "Zalo CDN chặn truy cập từ máy chủ (asia-southeast1) — đây là "
+            "giới hạn của Zalo, không phải lỗi của bạn. Hãy báo người dùng "
+            "ngắn gọn và đề nghị họ mô tả bằng chữ:\n"
+            "  'Em chưa xem được ảnh anh gửi (Zalo chặn). Anh tả bằng chữ "
+            "giúp em — ví dụ tên hãng dầu nhớt, biển số xe, mô tả phụ tùng, "
+            "v.v.'\n"
+            "Nếu caption đi kèm ảnh có nội dung rõ ràng (ví dụ 'còn dầu "
+            "Castrol 5W30 không'), hãy xử lý cái đó và bỏ qua ảnh."
+        )
+
     if user_role == "admin":
         base += (
             "\n\n## Anh là ADMIN của hệ thống\n\n"
@@ -169,6 +183,7 @@ async def reply(
     zalo_id: str = "",
     image: ImageInput | None = None,
     onboarding_step: str | None = None,
+    image_unavailable: bool = False,
 ) -> tuple[str, list[dict]]:
     """Run one Zalo turn through Claude + MCP.
 
@@ -184,6 +199,12 @@ async def reply(
     client = _get_client()
 
     messages: list[dict] = list(history or [])
+    if not user_text and image is None:
+        # Empty text + no image (e.g. image-download-failed and no caption)
+        # would 400 from Anthropic. Inject a minimal placeholder so the
+        # session_context's image_unavailable note is what drives the reply.
+        if image_unavailable:
+            user_text = "(người dùng gửi ảnh)"
     if image is not None:
         # Anthropic's image content block — base64 source so we don't
         # depend on Zalo CDN URLs being reachable from Anthropic's side.
@@ -219,7 +240,12 @@ async def reply(
             {
                 "type": "text",
                 "text": _session_context(
-                    org_id, user_role, user_display_name, zalo_id, onboarding_step
+                    org_id,
+                    user_role,
+                    user_display_name,
+                    zalo_id,
+                    onboarding_step,
+                    image_unavailable,
                 ),
             },
         ],

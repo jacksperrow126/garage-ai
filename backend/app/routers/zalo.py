@@ -131,16 +131,14 @@ async def _process_message(
     onboarding_step = user.get("onboarding_step")
 
     image: zalo_attachments.ImageInput | None = None
+    image_unavailable = False
     if image_urls:
-        try:
-            image = await zalo_attachments.download_image(image_urls[0])
-        except Exception as exc:
-            log.exception("zalo image download failed: %s", exc)
-            await zalo_client.send_message(
-                chat_id,
-                "Em chưa tải được ảnh anh gửi. Anh gửi lại giúp em nhé.",
-            )
-            return
+        image = await zalo_attachments.download_image(image_urls[0])
+        if image is None:
+            # Zalo CDN routinely blocks non-VN egress — Cloud Run can't
+            # fetch the bytes. Tell the agent so it asks the user to
+            # describe the photo in text instead of silently dropping.
+            image_unavailable = True
 
     # What we persist as the user-turn text. Bytes themselves aren't
     # round-tripped through history (cost + Firestore 1MB doc cap) —
@@ -148,6 +146,8 @@ async def _process_message(
     persisted_text = (
         f"[ảnh] {text}" if (image and text) else
         "[ảnh đính kèm]" if image else
+        f"[ảnh không tải được] {text}" if (image_unavailable and text) else
+        "[ảnh không tải được]" if image_unavailable else
         text
     )
 
@@ -163,6 +163,7 @@ async def _process_message(
             zalo_id=user_id,
             image=image,
             onboarding_step=onboarding_step,
+            image_unavailable=image_unavailable,
         )
     except Exception as exc:
         log.exception("agent.reply failed: %s", exc)

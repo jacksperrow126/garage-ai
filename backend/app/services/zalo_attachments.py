@@ -121,14 +121,16 @@ def _sniff_mime(data: bytes) -> str:
     return "image/jpeg"
 
 
-async def download_image(url: str) -> ImageInput:
+async def download_image(url: str) -> ImageInput | None:
     """Fetch an image URL into memory.
 
-    Zalo CDN (zdn.vn) serves images as public objects but some hosts /
-    paths reject the default httpx User-Agent and need a browser-shaped
-    one. We try in order: plain GET with browser UA → plain GET without
-    UA → Bearer-token auth (in case Zalo ever locks down). Raises
-    RuntimeError with diagnostic detail if all attempts fail.
+    Returns None on failure (NEVER raises) so callers can degrade
+    gracefully — Zalo CDN (zdn.vn) actively hangs HTTPS connections
+    from non-Zalo-app sources, including all Cloud Run egress, so
+    failures are the common case in production. We try a few request
+    shapes for the rare case Zalo's policy changes back, but expect
+    most attempts to time out and the bot to fall through to a
+    text-only reply asking the user to describe the photo.
 
     MIME is sniffed from magic bytes, not the upstream Content-Type —
     Zalo returns variants like 'image/jpg' that Anthropic's strict
@@ -136,33 +138,35 @@ async def download_image(url: str) -> ImageInput:
     settings = get_settings()
     bot_token = settings.zalo_bot_token
 
-    # Browser-shaped UA — Zalo CDN sometimes 403s default httpx UA.
     browser_ua = (
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     )
     attempts: list[tuple[str, dict[str, str]]] = [
-        ("browser-ua", {"User-Agent": browser_ua}),
+        (
+            "browser-ua",
+            {
+                "User-Agent": browser_ua,
+                "Referer": "https://zalo.me/",
+                "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+            },
+        ),
         ("plain", {}),
     ]
     if bot_token:
-        attempts.append(
-            ("bearer-token", {"Authorization": f"Bearer {bot_token}"})
-        )
+        attempts.append(("bearer-token", {"Authorization": f"Bearer {bot_token}"}))
 
+    # Tighten the timeout — Zalo CDN doesn't reject, it hangs. 8s per
+    # attempt × 3 attempts = 24s worst case before we degrade. Webhook
+    # is already 200-acked by the time we get here so this won't trip
+    # Zalo's retry, but it still delays the bot's reply.
     diagnostics: list[str] = []
-    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
         for label, headers in attempts:
             try:
                 resp = await client.get(url, headers=headers)
-            except Exception as exc:  # noqa: BLE001 — log everything
-                diagnostics.append(f"{label}: {type(exc).__name__}: {exc!r}")
-                log.warning(
-                    "zalo image download failed (%s): %s: %r",
-                    label,
-                    type(exc).__name__,
-                    exc,
-                )
+            except Exception as exc:  # noqa: BLE001
+                diagnostics.append(f"{label}: {type(exc).__name__}")
                 continue
             if resp.status_code == 200 and resp.content:
                 log.info(
@@ -171,10 +175,11 @@ async def download_image(url: str) -> ImageInput:
                     len(resp.content),
                 )
                 return ImageInput(data=resp.content, mime=_sniff_mime(resp.content))
-            diagnostics.append(
-                f"{label}: HTTP {resp.status_code} ({len(resp.content)} bytes)"
-            )
+            diagnostics.append(f"{label}: HTTP {resp.status_code}")
 
-    raise RuntimeError(
-        f"image download failed for {url} — attempts: {'; '.join(diagnostics)}"
+    log.warning(
+        "zalo image download failed for %s; attempts: %s — bot will degrade to text-only",
+        url,
+        "; ".join(diagnostics),
     )
+    return None
