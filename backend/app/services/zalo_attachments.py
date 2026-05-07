@@ -124,30 +124,57 @@ def _sniff_mime(data: bytes) -> str:
 async def download_image(url: str) -> ImageInput:
     """Fetch an image URL into memory.
 
-    Tries Bearer auth with the bot token first (Zalo CDN sometimes
-    requires it for fresh-uploaded media), falls back to plain GET.
-    Raises RuntimeError if both attempts fail.
+    Zalo CDN (zdn.vn) serves images as public objects but some hosts /
+    paths reject the default httpx User-Agent and need a browser-shaped
+    one. We try in order: plain GET with browser UA → plain GET without
+    UA → Bearer-token auth (in case Zalo ever locks down). Raises
+    RuntimeError with diagnostic detail if all attempts fail.
 
     MIME is sniffed from magic bytes, not the upstream Content-Type —
     Zalo returns variants like 'image/jpg' that Anthropic's strict
     validator rejects."""
     settings = get_settings()
-    auth_attempt = (
-        {"Authorization": f"Bearer {settings.zalo_bot_token}"}
-        if settings.zalo_bot_token
-        else None
+    bot_token = settings.zalo_bot_token
+
+    # Browser-shaped UA — Zalo CDN sometimes 403s default httpx UA.
+    browser_ua = (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     )
-    last_status: int | None = None
-    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-        for headers in (auth_attempt, {}):
-            if headers is None:
-                continue
+    attempts: list[tuple[str, dict[str, str]]] = [
+        ("browser-ua", {"User-Agent": browser_ua}),
+        ("plain", {}),
+    ]
+    if bot_token:
+        attempts.append(
+            ("bearer-token", {"Authorization": f"Bearer {bot_token}"})
+        )
+
+    diagnostics: list[str] = []
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+        for label, headers in attempts:
             try:
                 resp = await client.get(url, headers=headers)
-            except httpx.HTTPError as exc:
-                log.warning("zalo image download error: %s", exc)
+            except Exception as exc:  # noqa: BLE001 — log everything
+                diagnostics.append(f"{label}: {type(exc).__name__}: {exc!r}")
+                log.warning(
+                    "zalo image download failed (%s): %s: %r",
+                    label,
+                    type(exc).__name__,
+                    exc,
+                )
                 continue
-            last_status = resp.status_code
             if resp.status_code == 200 and resp.content:
+                log.info(
+                    "zalo image download ok via %s (%d bytes)",
+                    label,
+                    len(resp.content),
+                )
                 return ImageInput(data=resp.content, mime=_sniff_mime(resp.content))
-    raise RuntimeError(f"image download failed (last status={last_status}): {url}")
+            diagnostics.append(
+                f"{label}: HTTP {resp.status_code} ({len(resp.content)} bytes)"
+            )
+
+    raise RuntimeError(
+        f"image download failed for {url} — attempts: {'; '.join(diagnostics)}"
+    )
