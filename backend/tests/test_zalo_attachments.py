@@ -87,3 +87,29 @@ def test_skips_non_http_urls() -> None:
 def test_text_only_message_yields_no_urls() -> None:
     msg = {"text": "Còn dầu nhớt OIL5W30 không?"}
     assert extract_image_urls(msg) == []
+
+
+def test_real_zalo_bot_image_envelope() -> None:
+    """The actual shape Zalo Bot sends for message.image.received,
+    captured from prod logs on 2026-05-07. Top-level `photo_url` string
+    on the message — no nested `photo` object, no `attachments[]`."""
+    msg = {
+        "date": 1778134087088,
+        "chat": {"chat_type": "PRIVATE", "id": "8f705344d20d3b53621c"},
+        "caption": "hiểu ảnh này không",
+        "message_id": "5b62112a2f7fde268769",
+        "message_type": "CHAT_PHOTO",
+        "from": {
+            "id": "8f705344d20d3b53621c",
+            "is_bot": False,
+            "display_name": "Nguyễn Thành An",
+        },
+        "photo_url": (
+            "https://photo-stal-30.zdn.vn/no/jpg/7c242a7c3a1cfa42a30d/"
+            "4311211535202630369.jpg"
+        ),
+    }
+    assert extract_image_urls(msg) == [
+        "https://photo-stal-30.zdn.vn/no/jpg/7c242a7c3a1cfa42a30d/"
+        "4311211535202630369.jpg"
+    ]

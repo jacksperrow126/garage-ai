@@ -37,16 +37,31 @@ class ImageInput:
         return base64.b64encode(self.data).decode()
 
 
+# Flat top-level string fields where Zalo Bot may put the image URL.
+# Confirmed from prod webhook logs: `photo_url` for `message.image.received`
+# events.
+_FLAT_URL_FIELDS = ("photo_url", "image_url", "media_url", "thumb_url")
+
+
 def extract_image_urls(message: dict[str, Any]) -> list[str]:
     """Return image URLs found anywhere in `message`.
 
-    Tries common Zalo Bot envelope shapes:
+    Tries known Zalo Bot envelope shapes (defensive — the API is sparsely
+    documented and we've iterated this list as we see real events):
+      - message.photo_url / image_url / media_url  (flat string)  ← Zalo Bot
       - message.attachments[] with type == image/photo/media
       - message.photo (single dict or list)
       - message.image (single dict)
     Order is preserved; duplicates are removed."""
     urls: list[str] = []
 
+    # 1. Flat string URL fields — what Zalo Bot actually sends today.
+    for field in _FLAT_URL_FIELDS:
+        v = message.get(field)
+        if isinstance(v, str) and v.startswith(("http://", "https://")):
+            urls.append(v)
+
+    # 2. attachments[] — Telegram-ish shape, kept defensive.
     for attachment in message.get("attachments") or []:
         if not isinstance(attachment, dict):
             continue
@@ -56,6 +71,7 @@ def extract_image_urls(message: dict[str, Any]) -> list[str]:
             if url:
                 urls.append(url)
 
+    # 3. nested photo dict / list of size variants.
     photo = message.get("photo")
     if isinstance(photo, dict):
         if (u := _find_url(photo)):
@@ -65,6 +81,7 @@ def extract_image_urls(message: dict[str, Any]) -> list[str]:
             if isinstance(entry, dict) and (u := _find_url(entry)):
                 urls.append(u)
 
+    # 4. nested image dict.
     image = message.get("image")
     if isinstance(image, dict):
         if (u := _find_url(image)):
