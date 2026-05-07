@@ -10,7 +10,14 @@ from app.models.invoice import (
     ImportInvoiceCreate,
     ServiceInvoiceCreate,
 )
-from app.services import invoice_pdf, invoice_read, invoices, orgs as orgs_service
+from app.services import (
+    customers as customers_service,
+    invoice_pdf,
+    invoice_read,
+    invoices,
+    orgs as orgs_service,
+    suppliers as suppliers_service,
+)
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -75,7 +82,19 @@ def download_invoice_pdf(
     org = orgs_service.get_org(org_id)
     if not org:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "org not found")
-    pdf_bytes = invoice_pdf.render_invoice_pdf(org, inv)
+    customer = (
+        customers_service.get(org_id, inv["customer_id"])
+        if inv.get("customer_id")
+        else None
+    )
+    supplier = (
+        suppliers_service.get(org_id, inv["supplier_id"])
+        if inv.get("supplier_id")
+        else None
+    )
+    pdf_bytes = invoice_pdf.render_invoice_pdf(
+        org, inv, customer=customer, supplier=supplier
+    )
     filename = f"hoa-don-{invoice_id}.pdf"
     return Response(
         content=pdf_bytes,

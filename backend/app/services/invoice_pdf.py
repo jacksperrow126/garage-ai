@@ -1,8 +1,13 @@
 """Render an invoice document to a PDF byte string.
 
-Uses reportlab + a bundled Roboto TTF (Apache 2.0) so Vietnamese diacritics
-render correctly. The font is registered once per process; subsequent calls
-reuse the same Font objects."""
+Uses reportlab + a bundled Roboto TTF (Apache 2.0) so Vietnamese
+diacritics render correctly. The font is registered once per process;
+subsequent calls reuse the same Font objects.
+
+The renderer pulls additional context (customer + vehicle, supplier
+address/phone, creator name) so the output reads as a real shop receipt
+rather than just an internal data dump. Cost / profit columns are
+intentionally never read — those stay internal-only."""
 
 from __future__ import annotations
 
@@ -18,6 +23,7 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
+    KeepTogether,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -27,6 +33,14 @@ from reportlab.platypus import (
 
 _FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 _FONTS_REGISTERED = False
+
+# Brand-ish slate accent — same family as the admin panel's UI.
+_ACCENT = colors.HexColor("#0f172a")
+_MUTED = colors.HexColor("#64748b")
+_LINE = colors.HexColor("#cbd5e1")
+_LINE_LIGHT = colors.HexColor("#e2e8f0")
+_BG_HEADER = colors.HexColor("#f1f5f9")
+_BADGE_RED = colors.HexColor("#b91c1c")
 
 
 def _ensure_fonts() -> None:
@@ -39,9 +53,6 @@ def _ensure_fonts() -> None:
 
 
 def _format_vnd(amount: int | float | None) -> str:
-    """Vietnamese number formatting: 1.234.567 đ. We don't use Babel here
-    because the only locale we render is vi-VN — keeping the dependency
-    surface tiny."""
     if amount is None:
         return "—"
     s = f"{int(amount):,}".replace(",", ".")
@@ -52,22 +63,69 @@ def _fmt_dt(value: Any) -> str:
     if isinstance(value, datetime):
         dt = value
     else:
-        # Firestore returns ISO 8601 strings via the REST layer.
         dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     return dt.strftime("%d/%m/%Y %H:%M")
 
 
-def render_invoice_pdf(org: dict[str, Any], invoice: dict[str, Any]) -> bytes:
+def _humanize_creator(created_by: str | None, creator_name: str | None) -> str | None:
+    """Best-effort human-readable creator label.
+
+    `created_by` is the audit actor ("user:<uid>" or "ai:openclaw");
+    `creator_name` is an optional display name resolved by the caller."""
+    if creator_name:
+        return creator_name
+    if not created_by:
+        return None
+    if created_by.startswith("ai:"):
+        return "Trợ lý ảo"
+    if created_by.startswith("user:"):
+        return f"NV: {created_by[5:][:8]}"  # truncate UID
+    return created_by
+
+
+def _vehicle_lines(vehicle: dict[str, Any]) -> list[str]:
+    """Render a vehicle dict into 1-3 display lines, omitting empty fields."""
+    lines: list[str] = []
+    plate = (vehicle.get("license_plate") or "").strip()
+    make = (vehicle.get("make") or "").strip()
+    model = (vehicle.get("model") or "").strip()
+    year = vehicle.get("year")
+    note = (vehicle.get("note") or "").strip()
+    if plate:
+        lines.append(plate)
+    name_parts = [p for p in (make, model) if p]
+    if year:
+        name_parts.append(str(year))
+    if name_parts:
+        lines.append(" ".join(name_parts))
+    if note:
+        lines.append(note)
+    return lines
+
+
+def render_invoice_pdf(
+    org: dict[str, Any],
+    invoice: dict[str, Any],
+    *,
+    customer: dict[str, Any] | None = None,
+    supplier: dict[str, Any] | None = None,
+    creator_name: str | None = None,
+) -> bytes:
     """Build a customer-facing invoice PDF (A5 portrait).
 
     Internal-only fields (cost_price, profit) are deliberately omitted —
-    the customer should never see margin info."""
+    the customer should never see margin info.
+
+    Optional enrichment:
+      - customer: dict with name/phone/vehicles/note. If present, the
+        customer block shows phone + the first vehicle's plate/make/model.
+      - supplier: dict with name/phone/address (for import invoices).
+      - creator_name: human-readable name for the invoice author."""
     _ensure_fonts()
 
     is_import = invoice.get("type") == "import"
+    is_adjusted = invoice.get("status") == "adjusted"
     title = "PHIẾU NHẬP KHO" if is_import else "HÓA ĐƠN BÁN HÀNG"
-    cp_label = "Nhà cung cấp" if is_import else "Khách hàng"
-    cp_name = invoice.get("supplier_name" if is_import else "customer_name") or "—"
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -75,10 +133,11 @@ def render_invoice_pdf(org: dict[str, Any], invoice: dict[str, Any]) -> bytes:
         pagesize=A5,
         leftMargin=12 * mm,
         rightMargin=12 * mm,
-        topMargin=12 * mm,
-        bottomMargin=12 * mm,
+        topMargin=10 * mm,
+        bottomMargin=10 * mm,
         title=f"Invoice {invoice.get('id', '')}",
     )
+    page_w = A5[0] - 24 * mm
 
     base = ParagraphStyle(
         "base",
@@ -88,43 +147,164 @@ def render_invoice_pdf(org: dict[str, Any], invoice: dict[str, Any]) -> bytes:
         leading=12,
     )
     org_name_style = ParagraphStyle(
-        "orgName", parent=base, fontName="Roboto-Bold", fontSize=14, alignment=1, spaceAfter=2
+        "orgName", parent=base, fontName="Roboto-Bold", fontSize=15, alignment=1, spaceAfter=2
     )
     title_style = ParagraphStyle(
-        "title", parent=base, fontName="Roboto-Bold", fontSize=12, alignment=1, spaceBefore=6, spaceAfter=4
+        "title", parent=base, fontName="Roboto-Bold", fontSize=13, alignment=1, spaceBefore=4, spaceAfter=2
     )
-    center = ParagraphStyle("center", parent=base, alignment=1)
+    meta_style = ParagraphStyle("meta", parent=base, alignment=1, fontSize=9, textColor=_MUTED)
+    badge_style = ParagraphStyle(
+        "badge",
+        parent=base,
+        alignment=1,
+        fontName="Roboto-Bold",
+        fontSize=10,
+        textColor=_BADGE_RED,
+        spaceBefore=2,
+    )
+    section_label = ParagraphStyle(
+        "sectionLabel",
+        parent=base,
+        fontName="Roboto-Bold",
+        fontSize=8,
+        textColor=_MUTED,
+        leading=10,
+    )
+    party_name_style = ParagraphStyle(
+        "partyName", parent=base, fontName="Roboto-Bold", fontSize=10, leading=13
+    )
+    plate_style = ParagraphStyle(
+        "plate", parent=base, fontName="Roboto-Bold", fontSize=11, leading=14
+    )
     right = ParagraphStyle("right", parent=base, alignment=2)
-    bold = ParagraphStyle("bold", parent=base, fontName="Roboto-Bold")
+    center = ParagraphStyle("center", parent=base, alignment=1)
+    sig_cell = ParagraphStyle("sig", parent=base, alignment=1, fontSize=8, leading=11)
 
     story: list[Any] = []
 
     # ── Garage header ────────────────────────────────────────────────
     story.append(Paragraph((org.get("name") or "—").upper(), org_name_style))
+    header_meta_parts: list[str] = []
     if org.get("address"):
-        story.append(Paragraph(f"Địa chỉ: {org['address']}", center))
+        header_meta_parts.append(f"<b>Địa chỉ:</b> {org['address']}")
     if org.get("phone"):
-        story.append(Paragraph(f"SĐT: {org['phone']}", center))
+        header_meta_parts.append(f"<b>SĐT:</b> {org['phone']}")
     if org.get("tax_id"):
-        story.append(Paragraph(f"MST: {org['tax_id']}", center))
+        header_meta_parts.append(f"<b>MST:</b> {org['tax_id']}")
+    for line in header_meta_parts:
+        story.append(Paragraph(line, ParagraphStyle("h", parent=base, alignment=1, fontSize=8.5, leading=11)))
+
     story.append(Spacer(1, 4))
 
     # ── Title + meta ─────────────────────────────────────────────────
     story.append(Paragraph(title, title_style))
     story.append(
         Paragraph(
-            f"Số: <b>{invoice.get('id', '')}</b> &nbsp;&nbsp;&nbsp; Ngày: {_fmt_dt(invoice['created_at'])}",
-            center,
+            f"Số: <b>{invoice.get('id', '')}</b> &nbsp;•&nbsp; "
+            f"Ngày: {_fmt_dt(invoice['created_at'])}",
+            meta_style,
         )
     )
-    story.append(Spacer(1, 8))
+    creator = _humanize_creator(invoice.get("created_by"), creator_name)
+    if creator:
+        story.append(Paragraph(f"Người lập: {creator}", meta_style))
+    if is_adjusted:
+        story.append(Paragraph("⚠ HÓA ĐƠN ĐÃ ĐIỀU CHỈNH", badge_style))
+    story.append(Spacer(1, 6))
 
-    story.append(Paragraph(f"<b>{cp_label}:</b> {cp_name}", base))
+    # ── Two-column party + vehicle/supplier block ────────────────────
+    party_label_left = "NHÀ CUNG CẤP" if is_import else "KHÁCH HÀNG"
+    party_name = (
+        invoice.get("supplier_name" if is_import else "customer_name") or "—"
+    )
+
+    left_lines: list[Any] = [
+        Paragraph(party_label_left, section_label),
+        Paragraph(party_name, party_name_style),
+    ]
+    if is_import:
+        if supplier:
+            if supplier.get("phone"):
+                left_lines.append(
+                    Paragraph(f"SĐT: {supplier['phone']}", base)
+                )
+            if supplier.get("address"):
+                left_lines.append(
+                    Paragraph(f"Đ/c: {supplier['address']}", base)
+                )
+            if supplier.get("note"):
+                left_lines.append(
+                    Paragraph(
+                        f"<i>{supplier['note']}</i>",
+                        ParagraphStyle("note", parent=base, fontSize=8, textColor=_MUTED),
+                    )
+                )
+        right_lines: list[Any] = []  # no vehicle column for imports
+    else:
+        if customer:
+            if customer.get("phone"):
+                left_lines.append(Paragraph(f"SĐT: {customer['phone']}", base))
+            if customer.get("note"):
+                left_lines.append(
+                    Paragraph(
+                        f"<i>{customer['note']}</i>",
+                        ParagraphStyle("note", parent=base, fontSize=8, textColor=_MUTED),
+                    )
+                )
+        # Vehicle column on the right.
+        right_lines = [Paragraph("XE", section_label)]
+        vehicles = (customer or {}).get("vehicles") or []
+        if vehicles:
+            v = vehicles[0]
+            v_lines = _vehicle_lines(v)
+            if v_lines:
+                right_lines.append(Paragraph(v_lines[0], plate_style))
+                for extra in v_lines[1:]:
+                    right_lines.append(Paragraph(extra, base))
+            if len(vehicles) > 1:
+                right_lines.append(
+                    Paragraph(
+                        f"<i>(+ {len(vehicles) - 1} xe khác)</i>",
+                        ParagraphStyle("more", parent=base, fontSize=8, textColor=_MUTED),
+                    )
+                )
+        else:
+            right_lines.append(
+                Paragraph(
+                    "<i>Chưa có thông tin xe</i>",
+                    ParagraphStyle("none", parent=base, fontSize=8, textColor=_MUTED),
+                )
+            )
+
+    if right_lines:
+        party_table = Table(
+            [[left_lines, right_lines]],
+            colWidths=[page_w * 0.55, page_w * 0.45],
+        )
+    else:
+        party_table = Table([[left_lines]], colWidths=[page_w])
+    party_table.setStyle(
+        TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("BOX", (0, 0), (-1, -1), 0.4, _LINE),
+            ("LINEBETWEEN", (0, 0), (-1, -1), 0.4, _LINE_LIGHT),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fafbfc")),
+        ])
+    )
+    story.append(party_table)
     story.append(Spacer(1, 6))
 
     # ── Items table ──────────────────────────────────────────────────
+    sku_style = ParagraphStyle(
+        "sku", parent=base, alignment=1, fontSize=7, leading=9, fontName="Roboto"
+    )
     header_row = [
         Paragraph("<b>STT</b>", center),
+        Paragraph("<b>Mã SP</b>", center),
         Paragraph("<b>Mô tả</b>", center),
         Paragraph("<b>SL</b>", center),
         Paragraph("<b>Đơn giá</b>", center),
@@ -132,72 +312,121 @@ def render_invoice_pdf(org: dict[str, Any], invoice: dict[str, Any]) -> bytes:
     ]
     rows: list[list[Any]] = [header_row]
     for i, item in enumerate(invoice.get("items", []), start=1):
-        desc = str(item.get("description", ""))
-        if item.get("sku"):
-            desc = f"{desc} <font size=7 color='#64748b'>[{item['sku']}]</font>"
+        sku = item.get("sku") or "—"
         rows.append([
             Paragraph(str(i), center),
-            Paragraph(desc, base),
+            Paragraph(sku, sku_style),
+            Paragraph(str(item.get("description", "")), base),
             Paragraph(str(item.get("quantity", "")), center),
             Paragraph(_format_vnd(item.get("unit_price")), right),
             Paragraph(_format_vnd(item.get("line_total_revenue")), right),
         ])
-
+    # Total row — span label across the first 5 columns so it has room
+    # to render "TỔNG CỘNG" on one line, and the amount goes in the
+    # rightmost column on its own line.
     rows.append([
-        "",
-        "",
-        "",
         Paragraph("<b>TỔNG CỘNG</b>", right),
+        "",
+        "",
+        "",
+        "",
         Paragraph(f"<b>{_format_vnd(invoice.get('total_revenue'))}</b>", right),
     ])
 
-    page_w = A5[0] - 24 * mm
-    col_widths = [10 * mm, page_w - 70 * mm, 8 * mm, 26 * mm, 26 * mm]
+    # Column widths sum to page_w (~124mm at A5 with 12mm margins).
+    # STT 10, Mã SP 24, Mô tả 44, SL 8, Đơn giá 18, Thành tiền 20.
+    col_widths = [10 * mm, 24 * mm, 44 * mm, 8 * mm, 18 * mm, 20 * mm]
     table = Table(rows, colWidths=col_widths, repeatRows=1)
     table.setStyle(
         TableStyle([
             ("FONTNAME", (0, 0), (-1, -1), "Roboto"),
             ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
-            ("LINEBELOW", (0, 0), (-1, 0), 0.6, colors.HexColor("#0f172a")),
-            ("LINEABOVE", (0, -1), (-1, -1), 0.6, colors.HexColor("#0f172a")),
-            ("BOX", (0, 0), (-1, -2), 0.4, colors.HexColor("#cbd5e1")),
-            ("INNERGRID", (0, 0), (-1, -2), 0.2, colors.HexColor("#e2e8f0")),
+            ("BACKGROUND", (0, 0), (-1, 0), _BG_HEADER),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.6, _ACCENT),
+            ("LINEABOVE", (0, -1), (-1, -1), 0.6, _ACCENT),
+            ("BOX", (0, 0), (-1, -2), 0.4, _LINE),
+            ("INNERGRID", (0, 0), (-1, -2), 0.2, _LINE_LIGHT),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 4),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
             ("TOPPADDING", (0, 0), (-1, -1), 4),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            # Span the total-row label across cols 0..4 so "TỔNG CỘNG"
+            # has room to render on one line.
+            ("SPAN", (0, -1), (4, -1)),
         ])
     )
     story.append(table)
 
     # ── Notes ────────────────────────────────────────────────────────
     if invoice.get("notes"):
+        story.append(Spacer(1, 6))
+        story.append(
+            Paragraph(
+                f"<b>Ghi chú:</b> {invoice['notes']}",
+                ParagraphStyle("notes", parent=base, fontSize=9, leading=12),
+            )
+        )
+
+    # ── Warranty terms (service invoices only) ───────────────────────
+    if not is_import:
         story.append(Spacer(1, 8))
-        story.append(Paragraph(f"<b>Ghi chú:</b> {invoice['notes']}", base))
+        warranty_style = ParagraphStyle(
+            "warranty", parent=base, fontSize=8, leading=11, textColor=_MUTED
+        )
+        story.append(
+            Paragraph("ĐIỀU KHOẢN BẢO HÀNH", section_label)
+        )
+        story.append(
+            Paragraph("• Bảo hành phụ tùng theo nhà sản xuất.", warranty_style)
+        )
+        story.append(
+            Paragraph(
+                "• Bảo hành công thợ 7 ngày kể từ ngày xuất hóa đơn.",
+                warranty_style,
+            )
+        )
+        story.append(
+            Paragraph(
+                "• Vui lòng giữ hóa đơn để đối chiếu khi cần thiết.",
+                warranty_style,
+            )
+        )
 
     # ── Signature block ──────────────────────────────────────────────
-    story.append(Spacer(1, 18))
-    sig_cell = ParagraphStyle("sig", parent=base, alignment=1, fontSize=8, leading=11)
-    sig_table = Table(
+    story.append(Spacer(1, 14))
+    sig_left = "Người nhận hàng" if is_import else "Khách hàng"
+    sig_right = "Người giao hàng" if is_import else "Người bán"
+    sig_block = Table(
         [
             [
-                Paragraph("<b>Khách hàng</b><br/><i>(ký, ghi rõ họ tên)</i>", sig_cell),
-                Paragraph("<b>Người bán</b><br/><i>(ký, ghi rõ họ tên)</i>", sig_cell),
+                Paragraph(
+                    f"<b>{sig_left}</b><br/><i>(ký, ghi rõ họ tên)</i>", sig_cell
+                ),
+                Paragraph(
+                    f"<b>{sig_right}</b><br/><i>(ký, ghi rõ họ tên)</i>", sig_cell
+                ),
             ]
         ],
         colWidths=[page_w / 2, page_w / 2],
     )
-    story.append(sig_table)
+    story.append(KeepTogether(sig_block))
 
-    story.append(Spacer(1, 28))
-    story.append(
-        Paragraph(
-            "<i>Cảm ơn quý khách! Hẹn gặp lại lần sau.</i>",
-            ParagraphStyle("thankyou", parent=base, alignment=1, fontSize=8, textColor=colors.HexColor("#64748b")),
+    # ── Closing line ─────────────────────────────────────────────────
+    if not is_import:
+        story.append(Spacer(1, 22))
+        story.append(
+            Paragraph(
+                "<i>Cảm ơn quý khách! Hẹn gặp lại lần sau.</i>",
+                ParagraphStyle(
+                    "thankyou",
+                    parent=base,
+                    alignment=1,
+                    fontSize=8,
+                    textColor=_MUTED,
+                ),
+            )
         )
-    )
 
     doc.build(story)
     return buf.getvalue()
