@@ -54,6 +54,13 @@ def _verify_firebase_token(authorization: str | None) -> Principal:
         uid=decoded["uid"],
         role=role,
         email=decoded.get("email"),
+        # Custom claims set in /public/auth/exchange — drive multi-tenant
+        # authorization. Absent for users who never logged in via the bot
+        # path (e.g. anonymous dev sign-ins) — those fall through to
+        # default_org_id with no membership, so they only see whatever
+        # org default_org_id points at.
+        primary_org_id=decoded.get("primary_org_id"),
+        system_role=decoded.get("system_role"),
     )
 
 
@@ -102,9 +109,40 @@ async def require_agent_or_user(
 async def require_org_id(
     x_org_id: str | None = Header(default=None),
     settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_agent_or_user),
 ) -> str:
-    """Per-request org context. Frontend sends `X-Org-ID: <slug>`; if absent
-    we fall back to `settings.default_org_id` (single-tenant convenience —
-    fine until the second org goes live, at which point the frontend must
-    start sending the header explicitly)."""
-    return x_org_id or settings.default_org_id
+    """Per-request org context + membership enforcement.
+
+    Frontend sends `X-Org-ID: <slug>`; if absent we fall back to
+    `settings.default_org_id`. For *user* principals we then verify
+    they're allowed to access that org — using the `primary_org_id` /
+    `system_role` custom claims that the Zalo login exchange stamps on
+    the Firebase user.
+
+    Trust model:
+      - User: must have primary_org_id == requested org_id, OR
+              system_role == "admin" (cross-org bypass).
+      - Agent: trusted (the agent's MCP prompt threads the right org_id
+              through tool args; see mcp_server.py module docstring).
+
+    A user with no primary_org_id claim (e.g. anonymous dev sign-in)
+    can still hit endpoints scoped to default_org_id, but any other
+    org_id is rejected. This keeps local dev usable while enforcing
+    the production isolation guarantee.
+    """
+    org_id = x_org_id or settings.default_org_id
+    if principal.actor == "user" and principal.system_role != "admin":
+        # No primary_org_id → only default_org_id is accessible.
+        # Different primary_org_id → 403.
+        if principal.primary_org_id is None:
+            if org_id != settings.default_org_id:
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN,
+                    "no org membership; cannot access requested org",
+                )
+        elif principal.primary_org_id != org_id:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                f"not a member of org {org_id}",
+            )
+    return org_id

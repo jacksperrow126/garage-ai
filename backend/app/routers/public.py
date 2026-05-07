@@ -107,11 +107,16 @@ def exchange_login_token(body: _LoginExchangeRequest) -> _LoginExchangeResponse:
     role = "owner" if (is_admin or primary_org_id) else "manager"
 
     name = user.get("name") or "User"
-    persistent_claims = {
+    persistent_claims: dict = {
         "role": role,
         "primary_org_id": primary_org_id,
         "zalo_name": name,
     }
+    # system_role flag drives the cross-org bypass in `require_org_id`.
+    # Only set when the zalo_users record explicitly has it — we never
+    # invent admin status here.
+    if is_admin:
+        persistent_claims["system_role"] = "admin"
 
     get_firebase_app()  # ensure firebase-admin is initialized
 
