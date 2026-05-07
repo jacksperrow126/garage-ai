@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useState } from "react";
 
 import { api } from "@/lib/api";
 import { formatDate, formatVnd } from "@/lib/format";
@@ -50,17 +51,20 @@ export default function InvoiceDetailPage() {
   const inv = invoice.data;
   return (
     <div className="space-y-4">
-      <div>
-        <Link href="/invoices" className="text-sm text-slate-500 hover:underline">
-          ← {t("title")}
-        </Link>
-        <h1 className="text-xl font-semibold mt-2">
-          {t(inv.type)} · {formatDate(inv.created_at)}
-        </h1>
-        <div className="text-sm text-slate-500">
-          {inv.customer_name || inv.supplier_name || "—"} · {t(inv.status)} ·{" "}
-          <span className="font-mono">{inv.id}</span>
+      <div className="flex items-start gap-3">
+        <div className="flex-1">
+          <Link href="/invoices" className="text-sm text-slate-500 hover:underline">
+            ← {t("title")}
+          </Link>
+          <h1 className="text-xl font-semibold mt-2">
+            {t(inv.type)} · {formatDate(inv.created_at)}
+          </h1>
+          <div className="text-sm text-slate-500">
+            {inv.customer_name || inv.supplier_name || "—"} · {t(inv.status)} ·{" "}
+            <span className="font-mono">{inv.id}</span>
+          </div>
         </div>
+        <DownloadPdfButton invoiceId={inv.id} />
       </div>
 
       <div className="rounded-xl bg-white p-4 shadow-sm overflow-x-auto">
@@ -138,6 +142,46 @@ export default function InvoiceDetailPage() {
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+function DownloadPdfButton({ invoiceId }: { invoiceId: string }) {
+  const t = useTranslations("invoices");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleClick() {
+    setBusy(true);
+    setError(null);
+    try {
+      const { blob, filename } = await api.getBlob(`/invoices/${invoiceId}/pdf`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename ?? `hoa-don-${invoiceId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Revoke after a short delay so Safari has time to start the download.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      setError(t("downloadPdfFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        onClick={handleClick}
+        disabled={busy}
+        className="rounded-lg bg-slate-900 text-white px-4 py-2 text-sm whitespace-nowrap disabled:opacity-60"
+      >
+        {busy ? t("downloadPdfPreparing") : t("downloadPdf")}
+      </button>
+      {error && <span className="text-xs text-red-600">{error}</span>}
     </div>
   );
 }

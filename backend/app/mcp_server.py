@@ -49,6 +49,7 @@ from app.services import (
     previews,
     reports,
 )
+from app.services.pdf_tokens import mint_invoice_pdf_token
 
 AGENT = Principal(actor="agent", uid="openclaw", role="manager")
 
@@ -101,6 +102,43 @@ def get_invoice(org_id: str, invoice_id: str) -> dict[str, Any]:
     if not inv:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "invoice not found")
     return inv
+
+
+@mcp.tool()
+def get_invoice_pdf_url(
+    org_id: str, invoice_id: str, ttl_hours: int = 24
+) -> dict[str, Any]:
+    """Mint a time-limited public download URL for an invoice's PDF.
+
+    Use this when the user wants to share an invoice with a customer
+    (e.g. "gửi hóa đơn cho khách", "in PDF hóa đơn X", "share invoice
+    file") — the URL is unauthenticated, so the user can paste it into
+    a personal Zalo / SMS / email and the customer can open it without
+    logging in. The link expires after `ttl_hours` (default 24).
+
+    The PDF is customer-facing: shows garage header + line items +
+    total, and deliberately omits cost / profit columns.
+
+    Returns: {"url": "<https://.../public/invoices/.../pdf?t=...>",
+              "expires_at_unix": <int>, "ttl_hours": <int>}.
+
+    Errors: invoice_not_found if the invoice doesn't exist in this org.
+    """
+    inv = invoice_read.get_invoice(org_id, invoice_id)
+    if not inv:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "invoice not found")
+    ttl_seconds = max(60, ttl_hours * 3600)
+    token, expires_at = mint_invoice_pdf_token(org_id, invoice_id, ttl_seconds)
+    base = get_settings().public_base_url.rstrip("/")
+    url = f"{base}/public/invoices/{invoice_id}/pdf?t={token}"
+    audit.log(
+        org_id,
+        "share.invoice_pdf",
+        AGENT.audit_actor,
+        payload={"invoice_id": invoice_id, "ttl_hours": ttl_hours},
+        result={"expires_at_unix": expires_at},
+    )
+    return {"url": url, "expires_at_unix": expires_at, "ttl_hours": ttl_hours}
 
 
 @mcp.tool()

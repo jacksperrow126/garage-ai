@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     mcp_self_url: str = (
         "https://garage-ai-api-969667367100.asia-southeast1.run.app/mcp/"
     )
+    # Public base URL used to compose unauthenticated download links
+    # (e.g. invoice PDFs sent to the user over Zalo). Same Cloud Run
+    # host as mcp_self_url, but no /mcp/ suffix.
+    public_base_url: str = (
+        "https://garage-ai-api-969667367100.asia-southeast1.run.app"
+    )
 
     # ── Zalo Bot ────────────────────────────────────────────────────────
     # Token from "Zalo Bot Manager" OA (format: "12345689:abc-xyz").

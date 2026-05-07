@@ -1,16 +1,16 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
 from pydantic import Field
 
-from app.auth import Principal, require_agent_or_user, require_org_id
+from app.auth import Principal, require_agent_or_user, require_org_id, require_user
 from app.models.invoice import (
     AdjustmentCreate,
     ImportInvoiceCreate,
     ServiceInvoiceCreate,
 )
-from app.services import invoice_read, invoices
+from app.services import invoice_pdf, invoice_read, invoices, orgs as orgs_service
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -57,6 +57,31 @@ def create_invoice(
     if payload.type == "import":
         return invoices.create_import_invoice(org_id, payload, principal)
     return invoices.create_service_invoice(org_id, payload, principal)
+
+
+@router.get("/{invoice_id}/pdf")
+def download_invoice_pdf(
+    invoice_id: str,
+    _: Principal = Depends(require_user),
+    org_id: str = Depends(require_org_id),
+) -> Response:
+    """Render a customer-facing invoice PDF (A5). Browser-triggers a
+    download via the Content-Disposition header. Auth is user-only —
+    we don't expose this to the agent because the agent already has
+    the structured invoice data via MCP."""
+    inv = invoice_read.get_invoice(org_id, invoice_id)
+    if not inv:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "invoice not found")
+    org = orgs_service.get_org(org_id)
+    if not org:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "org not found")
+    pdf_bytes = invoice_pdf.render_invoice_pdf(org, inv)
+    filename = f"hoa-don-{invoice_id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/{invoice_id}/adjustments", status_code=status.HTTP_201_CREATED)

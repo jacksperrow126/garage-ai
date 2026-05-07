@@ -63,7 +63,10 @@
     "submit": "Lưu hóa đơn",
     "confirmCreate": "Xác nhận tạo?",
     "notes": "Ghi chú",
-    "adjustments": "Điều chỉnh"
+    "adjustments": "Điều chỉnh",
+    "downloadPdf": "Tải PDF",
+    "downloadPdfPreparing": "Đang tạo PDF...",
+    "downloadPdfFailed": "Tạo PDF thất bại"
   },
   "customers": {
     "title": "Khách hàng",

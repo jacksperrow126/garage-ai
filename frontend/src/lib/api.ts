@@ -41,6 +41,24 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function requestBlob(path: string): Promise<{ blob: Blob; filename: string | null }> {
+  const headers = { ...(await authHeaders()) };
+  const res = await fetch(`/api/v1${path}`, { headers });
+  if (!res.ok) {
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      body = await res.text();
+    }
+    throw new ApiError(res.status, `API ${res.status}`, body);
+  }
+  // Pull suggested filename out of Content-Disposition if the server set one.
+  const cd = res.headers.get("Content-Disposition") || "";
+  const match = cd.match(/filename="?([^";]+)"?/i);
+  return { blob: await res.blob(), filename: match ? match[1] : null };
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body: unknown) =>
@@ -48,4 +66,5 @@ export const api = {
   patch: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  getBlob: (path: string) => requestBlob(path),
 };

@@ -63,7 +63,10 @@
     "submit": "Save invoice",
     "confirmCreate": "Confirm?",
     "notes": "Notes",
-    "adjustments": "Adjustments"
+    "adjustments": "Adjustments",
+    "downloadPdf": "Download PDF",
+    "downloadPdfPreparing": "Generating PDF...",
+    "downloadPdfFailed": "Failed to generate PDF"
   },
   "customers": {
     "title": "Customers",
