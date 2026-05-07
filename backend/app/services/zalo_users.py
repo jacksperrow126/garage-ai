@@ -38,6 +38,7 @@ def upsert(
     system_role: str | None = None,
     primary_org_id: str | None = None,
     added_by: str | None = None,
+    onboarding_step: str | None = None,
 ) -> None:
     """Idempotent create-or-update. None-valued fields are not written
     (so a later upsert without `system_role` doesn't strip admin)."""
@@ -51,6 +52,8 @@ def upsert(
         payload["primary_org_id"] = primary_org_id
     if added_by is not None:
         payload["added_by"] = added_by
+    if onboarding_step is not None:
+        payload["onboarding_step"] = onboarding_step
 
     ref = get_db().collection("zalo_users").document(zalo_id)
     if ref.get().exists:
@@ -63,3 +66,15 @@ def set_primary_org(zalo_id: str, org_id: str) -> None:
     get_db().collection("zalo_users").document(zalo_id).update(
         {"primary_org_id": org_id, "updated_at": server_timestamp()}
     )
+
+
+def set_onboarding_step(zalo_id: str, step: str | None) -> None:
+    """Update where the user is in the onboarding wizard. Pass None to
+    clear (e.g. when onboarding completes — but we keep "done" as a
+    sentinel so the prompt can still distinguish a freshly-completed
+    user from one who never went through onboarding)."""
+    payload: dict[str, Any] = {
+        "onboarding_step": step,
+        "updated_at": server_timestamp(),
+    }
+    get_db().collection("zalo_users").document(zalo_id).update(payload)

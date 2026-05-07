@@ -38,6 +38,7 @@ from app.models.invoice import (
     ServiceInvoiceItemIn,
 )
 from app.models.product import ProductCreate
+from app.firestore import get_db, server_timestamp
 from app.services import (
     access_requests,
     audit,
@@ -45,9 +46,11 @@ from app.services import (
     inventory,
     invoice_read,
     invoices,
+    onboarding,
     orgs,
     previews,
     reports,
+    zalo_client,
     zalo_users,
 )
 from app.services.auth_tokens import mint_login_token
@@ -302,6 +305,96 @@ def confirm_action(org_id: str, preview_id: str) -> dict[str, Any]:
         parsed = ServiceInvoiceCreate(**payload)
         return invoices.create_service_invoice(org_id, parsed, AGENT)
     raise HTTPException(status.HTTP_400_BAD_REQUEST, f"unknown preview action: {action}")
+
+
+# ── Onboarding tools ────────────────────────────────────────────────────
+
+@mcp.tool()
+def update_org_info(
+    org_id: str,
+    address: str | None = None,
+    phone: str | None = None,
+    tax_id: str | None = None,
+) -> dict[str, Any]:
+    """Update the org's printable header fields used on invoice PDFs.
+
+    Pass only the fields that should change — None values are skipped,
+    so a partial update doesn't clobber other fields. Used during the
+    onboarding wizard's garage-profile step and any later edits.
+
+    Returns the updated public org record. Empty string values are
+    permitted (e.g. clearing a tax_id back to empty)."""
+    updates: dict[str, Any] = {}
+    if address is not None:
+        updates["address"] = address.strip()
+    if phone is not None:
+        updates["phone"] = phone.strip()
+    if tax_id is not None:
+        updates["tax_id"] = tax_id.strip()
+    if not updates:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "no fields to update"
+        )
+
+    org_ref = get_db().collection("organizations").document(org_id)
+    if not org_ref.get().exists:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"org {org_id} not found")
+    org_ref.update({**updates, "updated_at": server_timestamp()})
+    audit.log(
+        org_id,
+        "org.update_info",
+        AGENT.audit_actor,
+        payload=updates,
+        result=None,
+    )
+    refreshed = orgs.get_org(org_id)
+    assert refreshed is not None
+    return {
+        "id": refreshed["id"],
+        "name": refreshed.get("name", ""),
+        "address": refreshed.get("address", ""),
+        "phone": refreshed.get("phone", ""),
+        "tax_id": refreshed.get("tax_id", ""),
+    }
+
+
+@mcp.tool()
+def set_onboarding_step(zalo_id: str, step: str) -> dict[str, Any]:
+    """Advance the onboarding state for a Zalo user. Valid `step` values:
+    'garage_profile', 'first_inventory', 'done'.
+
+    Call when the current step is finished — e.g. after the user has
+    given (or skipped) all garage profile fields, call with
+    step='first_inventory'. After they've added (or skipped) initial
+    inventory, call with step='done'."""
+    if not onboarding.is_valid_step(step):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"invalid onboarding step: {step}"
+        )
+    if not zalo_users.get(zalo_id):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"no zalo_users/{zalo_id}"
+        )
+    zalo_users.set_onboarding_step(zalo_id, step)
+    return {"zalo_id": zalo_id, "onboarding_step": step}
+
+
+@mcp.tool()
+async def send_dm(zalo_id: str, text: str) -> dict[str, Any]:
+    """Send a Vietnamese plain-text message to another Zalo user's chat
+    with this bot. Used by the admin onboarding flow: after approving
+    a new user, the admin's bot session calls this to welcome the
+    approved user and start the onboarding dialog in their own chat.
+
+    Recipient must be a known zalo_users record — refuses to DM
+    arbitrary zalo_ids. Markdown is stripped client-side (Zalo plain
+    text only)."""
+    if not zalo_users.get(zalo_id):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"no zalo_users/{zalo_id}"
+        )
+    await zalo_client.send_message(zalo_id, text)
+    return {"sent_to": zalo_id, "chars": len(text)}
 
 
 # ── Admin tools (org access management) ─────────────────────────────────

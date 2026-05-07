@@ -128,6 +128,7 @@ async def _process_message(
     org_id = user["primary_org_id"]
     user_role = user.get("system_role") or "member"
     display = user.get("name") or display_name
+    onboarding_step = user.get("onboarding_step")
 
     image: zalo_attachments.ImageInput | None = None
     if image_urls:
@@ -161,6 +162,7 @@ async def _process_message(
             history=history,
             zalo_id=user_id,
             image=image,
+            onboarding_step=onboarding_step,
         )
     except Exception as exc:
         log.exception("agent.reply failed: %s", exc)

@@ -57,10 +57,12 @@ def _session_context(
     user_role: str,
     display_name: str | None,
     zalo_id: str,
+    onboarding_step: str | None = None,
 ) -> str:
     """The short per-turn block that names the org, the caller's Zalo id,
     and tells Claude to thread `org_id` through every MCP tool call.
-    For admins, also nudges Claude toward the access-request tools."""
+    For admins, also nudges Claude toward the access-request tools.
+    For users mid-onboarding, injects step-specific instructions."""
     name = display_name or "Anh/Chị"
     base = (
         "## Bối cảnh phiên hiện tại\n\n"
@@ -70,6 +72,47 @@ def _session_context(
         "create_import_invoice, confirm_action, …), LUÔN truyền tham số "
         f"`org_id=\"{org_id}\"`. Đây là tham số bắt buộc."
     )
+    if onboarding_step == "garage_profile":
+        base += (
+            "\n\n## ĐANG ONBOARD — Bước 1/2: Thông tin tiệm\n\n"
+            "Người dùng vừa được duyệt vào hệ thống và CHƯA hoàn tất setup. "
+            "Dẫn dắt từng bước, hỏi LẦN LƯỢT từng câu một, mỗi tin nhắn 1 câu hỏi:\n"
+            "1. Địa chỉ tiệm? (gợi ý: '123 Nguyễn Huệ, Q.1, TP.HCM')\n"
+            "2. Số điện thoại tiệm? (gợi ý: 'Anh có thể gửi luôn số Zalo đăng ký')\n"
+            "3. Mã số thuế? (tùy chọn — anh có thể gửi 'bỏ qua')\n\n"
+            "Sau MỖI câu trả lời: gọi `update_org_info(org_id, address=...)` "
+            "(hoặc phone, tax_id tương ứng), rồi hỏi câu tiếp theo.\n"
+            "Khi hỏi xong cả 3 (kể cả nếu bỏ qua tax_id): gọi "
+            f"`set_onboarding_step(zalo_id=\"{zalo_id}\", step=\"first_inventory\")` "
+            "RỒI chuyển sang bước 2 với tin nhắn:\n"
+            "  'Tiệm đã sẵn sàng. Giờ anh nhập 1-2 sản phẩm/dịch vụ chính, "
+            "  dạng \"Tên - giá\" mỗi dòng. Ví dụ:\n"
+            "    Dầu nhớt Castrol 5W30 - 250k\n"
+            "    Lọc dầu Toyota - 80k\n"
+            "    Công thay nhớt - 50k'\n\n"
+            "Nếu người dùng nói 'bỏ qua hết' hoặc 'lát em làm sau': gọi "
+            f"`set_onboarding_step(zalo_id=\"{zalo_id}\", step=\"done\")` và "
+            "trả lời 'OK, anh có thể setup sau qua trang quản lý web.'"
+        )
+    elif onboarding_step == "first_inventory":
+        base += (
+            "\n\n## ĐANG ONBOARD — Bước 2/2: Sản phẩm/Dịch vụ ban đầu\n\n"
+            "Người dùng đang nhập danh sách sản phẩm/dịch vụ đầu tiên.\n"
+            "Quy tắc xử lý:\n"
+            "  - Parse từng dòng dạng 'Tên - giá' thành (name, selling_price). "
+            "Hỗ trợ '250k' = 250000, '1.5tr' = 1500000, '200000đ' = 200000.\n"
+            "  - Nếu một dòng không parse được, HỎI LẠI cụ thể dòng đó: "
+            "'Em chưa hiểu dòng <X>, anh viết lại theo dạng \"Tên - giá\" giúp em.'\n"
+            "  - Khi parse được: gọi `add_product(org_id, name, selling_price)` "
+            "cho từng dòng, gom các preview_id, đọc lại danh sách cho user "
+            "xác nhận, rồi gọi `confirm_action(org_id, preview_id)` cho từng cái.\n"
+            "  - Sau khi tạo xong (hoặc người dùng nói 'lát em nhập sau' / "
+            "'bỏ qua'): gọi "
+            f"`set_onboarding_step(zalo_id=\"{zalo_id}\", step=\"done\")` "
+            "và đọc câu chốt:\n"
+            "  'Hoàn tất setup. Anh có thể: tạo hóa đơn, kiểm kho, xem báo cáo, "
+            "hoặc nhắn \"đăng nhập web\" để mở trang quản lý. Cần gì cứ nhắn em.'"
+        )
     if user_role == "admin":
         base += (
             "\n\n## Anh là ADMIN của hệ thống\n\n"
@@ -77,15 +120,26 @@ def _session_context(
             "của anh dưới dạng:\n"
             "  '🆕 Yêu cầu mới: <tên> (zalo:<id>) … Mã yêu cầu: <request_id> …'\n\n"
             "Khi anh trả lời ý định duyệt/từ chối:\n"
-            "  - Duyệt: gọi `approve_access_request(request_id=..., "
+            "  - Duyệt vào tiệm CÓ SẴN: gọi `approve_access_request(request_id=..., "
             "target_org_id=<slug>, role=<owner|manager|member>, "
-            f"admin_zalo_id=\"{zalo_id}\")`. Sau khi tool trả về OK, đọc lại "
-            "kết quả cho anh bằng tiếng Việt.\n"
+            f"admin_zalo_id=\"{zalo_id}\")`.\n"
+            "  - Duyệt + tạo tiệm MỚI (anh nói 'duyệt 12345 tạo tiệm <tên> "
+            "cho ảnh làm chủ'): gọi `create_organization(name=<tên>, "
+            f"admin_zalo_id=\"{zalo_id}\")` để lấy slug, RỒI gọi "
+            "`approve_access_request(...)` với role='owner' và slug vừa lấy.\n"
             "  - Từ chối: gọi `deny_access_request(request_id=..., reason=<lý do>, "
             f"admin_zalo_id=\"{zalo_id}\")`.\n"
-            "  - Liệt kê yêu cầu đang chờ: `list_pending_access_requests()`.\n"
-            "  - Tạo tổ chức mới: `create_organization(name=<tên>, "
-            f"admin_zalo_id=\"{zalo_id}\")`.\n\n"
+            "  - Liệt kê yêu cầu đang chờ: `list_pending_access_requests()`.\n\n"
+            "QUAN TRỌNG — chào mừng người dùng vừa duyệt:\n"
+            "Nếu `approve_access_request` trả về `needs_onboarding: true` "
+            "(người dùng là owner đầu tiên của một tiệm chưa setup), gọi "
+            "`send_dm(zalo_id=<zalo_id của người dùng vừa duyệt>, text=<lời chào>)` "
+            "để khởi động onboarding ở chat của người đó. Nội dung text đại "
+            "loại: 'Chào anh, em là trợ lý quản lý tiệm. Em đã được phép "
+            "giúp anh quản lý <tên tiệm>. Trước hết, em cần một số thông "
+            "tin để in trên hóa đơn — Địa chỉ tiệm của anh là gì ạ?'\n\n"
+            "Nếu `needs_onboarding: false`, chỉ trả lời cho admin là đã "
+            "duyệt, KHÔNG gọi send_dm.\n\n"
             "Đối với các tool quản trị này KHÔNG cần truyền org_id — "
             "chúng hoạt động ở phạm vi toàn hệ thống."
         )
@@ -114,6 +168,7 @@ async def reply(
     history: list[dict] | None = None,
     zalo_id: str = "",
     image: ImageInput | None = None,
+    onboarding_step: str | None = None,
 ) -> tuple[str, list[dict]]:
     """Run one Zalo turn through Claude + MCP.
 
@@ -163,7 +218,9 @@ async def reply(
             },
             {
                 "type": "text",
-                "text": _session_context(org_id, user_role, user_display_name, zalo_id),
+                "text": _session_context(
+                    org_id, user_role, user_display_name, zalo_id, onboarding_step
+                ),
             },
         ],
         messages=messages,

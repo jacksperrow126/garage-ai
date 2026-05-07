@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.firestore import get_db, server_timestamp
-from app.services import orgs, zalo_users
+from app.services import onboarding, orgs, zalo_users
 
 log = logging.getLogger(__name__)
 
@@ -116,12 +116,24 @@ def approve(
     requester_zalo_id = data["zalo_id"]
     requester_name = data.get("display_name") or "Unknown"
 
+    # Decide onboarding state BEFORE writes so the org doc check reflects
+    # state-pre-approval. A user gets the wizard only if they're an owner
+    # of a still-fresh org (no address/phone/tax_id yet); otherwise the
+    # org is already in use and they skip straight to "done".
+    needs_onboarding = role == "owner" and not onboarding.is_org_already_setup(
+        target_org_id
+    )
+    initial_step = (
+        onboarding.STEP_GARAGE_PROFILE if needs_onboarding else onboarding.STEP_DONE
+    )
+
     # Add the user record (or update if they had a stub already).
     zalo_users.upsert(
         requester_zalo_id,
         name=requester_name,
         primary_org_id=target_org_id,
         added_by=resolved_by_zalo_id,
+        onboarding_step=initial_step,
     )
     orgs.add_member(target_org_id, requester_zalo_id, role=role, added_by=resolved_by_zalo_id)
 
@@ -140,6 +152,9 @@ def approve(
         "org_id": target_org_id,
         "role": role,
         "resolved_at": datetime.now(UTC),
+        # Bot reads this to decide whether to send the onboarding welcome
+        # vs a plain "you've been approved" message.
+        "needs_onboarding": needs_onboarding,
     }
 
 

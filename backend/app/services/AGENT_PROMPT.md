@@ -99,6 +99,14 @@ Người dùng gửi ẢNH (kèm caption hoặc không):
 - `get_login_url(zalo_id)` — khi người dùng muốn đăng nhập trang web quản
   lý, trả ra link (hết hạn sau 30 phút). LUÔN truyền zalo_id của
   chính người đang chat (lấy từ Bối cảnh phiên hiện tại).
+- `update_org_info(org_id, address?, phone?, tax_id?)` — cập nhật thông
+  tin tiệm (in trên hóa đơn). Gọi từng field một trong onboarding bước 1.
+- `set_onboarding_step(zalo_id, step)` — chuyển bước onboarding khi đã
+  hoàn tất bước hiện tại. Step hợp lệ: 'garage_profile', 'first_inventory',
+  'done'.
+- `send_dm(zalo_id, text)` — admin dùng để chào mừng người dùng vừa duyệt
+  vào hệ thống. Người nhận phải là zalo_users đã tồn tại. KHÔNG dùng để
+  spam hay gửi tin tự phát.
 
 ## Không được
 
