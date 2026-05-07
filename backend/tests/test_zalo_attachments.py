@@ -7,7 +7,7 @@ top-level path to `extract_image_urls` and add a case here."""
 
 from __future__ import annotations
 
-from app.services.zalo_attachments import extract_image_urls
+from app.services.zalo_attachments import _sniff_mime, extract_image_urls
 
 
 def test_attachments_array_with_type_image() -> None:
@@ -87,6 +87,34 @@ def test_skips_non_http_urls() -> None:
 def test_text_only_message_yields_no_urls() -> None:
     msg = {"text": "Còn dầu nhớt OIL5W30 không?"}
     assert extract_image_urls(msg) == []
+
+
+def test_sniff_mime_jpeg() -> None:
+    assert _sniff_mime(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00") == "image/jpeg"
+
+
+def test_sniff_mime_png() -> None:
+    assert _sniff_mime(b"\x89PNG\r\n\x1a\nIHDR") == "image/png"
+
+
+def test_sniff_mime_gif87() -> None:
+    assert _sniff_mime(b"GIF87a\x00\x00") == "image/gif"
+
+
+def test_sniff_mime_gif89() -> None:
+    assert _sniff_mime(b"GIF89a\x00\x00") == "image/gif"
+
+
+def test_sniff_mime_webp() -> None:
+    # WebP magic: "RIFF????WEBP" — bytes 8-11 are the WEBP marker.
+    assert _sniff_mime(b"RIFF\x00\x00\x00\x00WEBPVP8 ") == "image/webp"
+
+
+def test_sniff_mime_unknown_falls_back_to_jpeg() -> None:
+    """Anthropic only accepts jpeg/png/gif/webp, so unknown types must
+    not propagate as-is — we default to jpeg, since that's what Zalo
+    CDN returns 99% of the time."""
+    assert _sniff_mime(b"\x00\x01\x02\x03\x04\x05\x06\x07") == "image/jpeg"
 
 
 def test_real_zalo_bot_image_envelope() -> None:

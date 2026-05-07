@@ -104,12 +104,33 @@ def _find_url(d: dict[str, Any]) -> str | None:
     return None
 
 
+def _sniff_mime(data: bytes) -> str:
+    """Detect image MIME from magic bytes — never trust upstream
+    Content-Type. Anthropic only accepts these four MIME values, so
+    we constrain our return to that set; unknown types default to
+    image/jpeg (most common case from Zalo CDN)."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    log.warning("unknown image magic bytes %r — defaulting to image/jpeg", data[:8])
+    return "image/jpeg"
+
+
 async def download_image(url: str) -> ImageInput:
     """Fetch an image URL into memory.
 
     Tries Bearer auth with the bot token first (Zalo CDN sometimes
     requires it for fresh-uploaded media), falls back to plain GET.
-    Raises RuntimeError if both attempts fail."""
+    Raises RuntimeError if both attempts fail.
+
+    MIME is sniffed from magic bytes, not the upstream Content-Type —
+    Zalo returns variants like 'image/jpg' that Anthropic's strict
+    validator rejects."""
     settings = get_settings()
     auth_attempt = (
         {"Authorization": f"Bearer {settings.zalo_bot_token}"}
@@ -128,6 +149,5 @@ async def download_image(url: str) -> ImageInput:
                 continue
             last_status = resp.status_code
             if resp.status_code == 200 and resp.content:
-                mime = resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
-                return ImageInput(data=resp.content, mime=mime)
+                return ImageInput(data=resp.content, mime=_sniff_mime(resp.content))
     raise RuntimeError(f"image download failed (last status={last_status}): {url}")
