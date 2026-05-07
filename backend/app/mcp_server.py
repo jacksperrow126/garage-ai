@@ -55,6 +55,7 @@ from app.services import (
 )
 from app.services.auth_tokens import mint_login_token
 from app.services.pdf_tokens import mint_invoice_pdf_token
+from app.services.upload_tokens import mint_upload_token
 
 AGENT = Principal(actor="agent", uid="openclaw", role="manager")
 
@@ -398,6 +399,44 @@ async def send_dm(zalo_id: str, text: str) -> dict[str, Any]:
 
 
 # ── Admin tools (org access management) ─────────────────────────────────
+
+@mcp.tool()
+def get_upload_url(zalo_id: str, ttl_minutes: int = 30) -> dict[str, Any]:
+    """Mint a one-time URL where the user can upload an image / PDF /
+    text file via the web. The bot uses this in TWO situations:
+
+    1. Auto-fallback: when the system flags `image_unavailable=true`
+       (Zalo CDN blocked our server-side download). Reply to the user
+       with this URL so they can upload directly.
+    2. On-demand: user explicitly says "upload ảnh", "muốn gửi file",
+       "anh gửi PDF", etc.
+
+    Pass the calling user's zalo_id from the session context. Link
+    expires after `ttl_minutes` (default 30). Files: image (jpeg/png/
+    gif/webp), PDF, or plain text — backend validates + processes via
+    the same agent flow, replies in both the web tab AND Zalo chat.
+
+    Returns: {"url": "https://<admin>/upload?token=<jwt>",
+              "expires_at_unix": int, "ttl_minutes": int}.
+    """
+    user = zalo_users.get(zalo_id)
+    if not user:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"no zalo_users/{zalo_id}"
+        )
+    ttl_seconds = max(60, ttl_minutes * 60)
+    token, expires_at = mint_upload_token(zalo_id, ttl_seconds)
+    base = get_settings().admin_base_url.rstrip("/")
+    url = f"{base}/upload?token={token}"
+    audit.log(
+        user.get("primary_org_id") or "system",
+        "upload.mint_url",
+        AGENT.audit_actor,
+        payload={"zalo_id": zalo_id, "ttl_minutes": ttl_minutes},
+        result={"expires_at_unix": expires_at},
+    )
+    return {"url": url, "expires_at_unix": expires_at, "ttl_minutes": ttl_minutes}
+
 
 @mcp.tool()
 def get_login_url(zalo_id: str, ttl_minutes: int = 30) -> dict[str, Any]:

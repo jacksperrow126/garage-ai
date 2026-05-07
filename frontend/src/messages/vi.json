@@ -91,6 +91,23 @@
     "monthly": "Theo tháng",
     "topProducts": "Sản phẩm bán chạy"
   },
+  "upload": {
+    "badge": "Upload qua web",
+    "title": "Phân tích ảnh / file",
+    "subtitle": "Em sẽ đọc nội dung và trả lời cả ở đây và Zalo.",
+    "fileLabel": "Chọn file (ảnh, PDF hoặc text)",
+    "fileHint": "Tối đa 10MB. Hỗ trợ JPG/PNG/GIF/WebP, PDF, text.",
+    "captionLabel": "Ghi chú (tùy chọn)",
+    "captionPlaceholder": "Ví dụ: 'log loại nhớt này vào kho' hoặc 'phụ tùng này còn dùng được không'",
+    "submit": "Phân tích",
+    "analyzing": "Đang phân tích...",
+    "resultTitle": "Kết quả",
+    "alsoSentToZalo": "Đã gửi kết quả về chat Zalo",
+    "noToken": "Thiếu token. Vào Zalo nhắn bot để lấy link upload mới.",
+    "linkExpired": "Link đã hết hạn. Vào Zalo nhắn bot để lấy link mới.",
+    "fileTooLarge": "File quá lớn (tối đa 10MB).",
+    "unsupportedType": "Loại file không hỗ trợ. Chỉ nhận ảnh, PDF, hoặc text."
+  },
   "common": {
     "loading": "Đang tải...",
     "error": "Có lỗi xảy ra",

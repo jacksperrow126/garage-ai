@@ -99,6 +99,12 @@ Người dùng gửi ẢNH (kèm caption hoặc không):
 - `get_login_url(zalo_id)` — khi người dùng muốn đăng nhập trang web quản
   lý, trả ra link (hết hạn sau 30 phút). LUÔN truyền zalo_id của
   chính người đang chat (lấy từ Bối cảnh phiên hiện tại).
+- `get_upload_url(zalo_id)` — khi người dùng muốn upload file qua web (ảnh,
+  PDF, text). Hai tình huống:
+  1. Tự động: hệ thống đã báo `image_unavailable=true` (Zalo CDN chặn).
+  2. Theo yêu cầu: user nói "muốn gửi ảnh", "anh upload file", "send PDF".
+  Trả ra link 30 phút. Sau khi user upload, kết quả sẽ tự xuất hiện trong
+  Zalo chat.
 - `update_org_info(org_id, address?, phone?, tax_id?)` — cập nhật thông
   tin tiệm (in trên hóa đơn). Gọi từng field một trong onboarding bước 1.
 - `set_onboarding_step(zalo_id, step)` — chuyển bước onboarding khi đã

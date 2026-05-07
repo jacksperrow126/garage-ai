@@ -117,14 +117,19 @@ def _session_context(
     if image_unavailable:
         base += (
             "\n\n## NOTE: Người dùng vừa gửi ẢNH nhưng hệ thống không tải được\n\n"
-            "Zalo CDN chặn truy cập từ máy chủ (asia-southeast1) — đây là "
-            "giới hạn của Zalo, không phải lỗi của bạn. Hãy báo người dùng "
-            "ngắn gọn và đề nghị họ mô tả bằng chữ:\n"
-            "  'Em chưa xem được ảnh anh gửi (Zalo chặn). Anh tả bằng chữ "
-            "giúp em — ví dụ tên hãng dầu nhớt, biển số xe, mô tả phụ tùng, "
-            "v.v.'\n"
-            "Nếu caption đi kèm ảnh có nội dung rõ ràng (ví dụ 'còn dầu "
-            "Castrol 5W30 không'), hãy xử lý cái đó và bỏ qua ảnh."
+            "Zalo CDN chặn truy cập từ máy chủ ngoài Việt Nam — đây là "
+            "giới hạn của Zalo, không phải lỗi của bạn. KHÔNG hỏi người "
+            "dùng mô tả bằng chữ — thay vào đó BẮT BUỘC làm như sau:\n"
+            f"1. Gọi `get_upload_url(zalo_id=\"{zalo_id}\")` để lấy link "
+            "upload web (30 phút).\n"
+            "2. Trả lời ngắn gọn kèm link:\n"
+            "  'Em chưa xem được ảnh anh gửi (Zalo chặn). Anh upload qua "
+            "link này (30 phút): <url> — chọn ảnh + ghi chú nếu cần. Em "
+            "sẽ phân tích và gửi kết quả về Zalo.'\n"
+            "Chỉ gửi nguyên link, KHÔNG markdown link wrapper.\n\n"
+            "Nếu caption ảnh có nội dung rõ (ví dụ 'còn dầu Castrol 5W30 "
+            "không'), xử lý nội dung caption trước, rồi kèm link upload "
+            "phía sau cho lần khác."
         )
 
     if user_role == "admin":
@@ -182,6 +187,7 @@ async def reply(
     history: list[dict] | None = None,
     zalo_id: str = "",
     image: ImageInput | None = None,
+    pdf_bytes: bytes | None = None,
     onboarding_step: str | None = None,
     image_unavailable: bool = False,
 ) -> tuple[str, list[dict]]:
@@ -198,31 +204,43 @@ async def reply(
     settings = get_settings()
     client = _get_client()
 
+    import base64 as _b64
+
     messages: list[dict] = list(history or [])
-    if not user_text and image is None:
-        # Empty text + no image (e.g. image-download-failed and no caption)
-        # would 400 from Anthropic. Inject a minimal placeholder so the
-        # session_context's image_unavailable note is what drives the reply.
+    if not user_text and image is None and pdf_bytes is None:
+        # Empty content would 400 from Anthropic. Inject a minimal
+        # placeholder so the session_context's image_unavailable note
+        # is what drives the reply.
         if image_unavailable:
             user_text = "(người dùng gửi ảnh)"
+
+    user_content: list[dict] = []
     if image is not None:
         # Anthropic's image content block — base64 source so we don't
         # depend on Zalo CDN URLs being reachable from Anthropic's side.
-        user_content: list[dict] = [
-            {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": image.mime,
-                    "data": image.b64,
-                },
-            }
-        ]
-        # Always include a text block — even an empty caption — so Claude
-        # has a clear "user message" anchor and the API doesn't reject
-        # an image-only message.
+        user_content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": image.mime,
+                "data": image.b64,
+            },
+        })
+    if pdf_bytes is not None:
+        user_content.append({
+            "type": "document",
+            "source": {
+                "type": "base64",
+                "media_type": "application/pdf",
+                "data": _b64.b64encode(pdf_bytes).decode(),
+            },
+        })
+    if user_content:
+        # Always include a text block — Anthropic accepts image/document
+        # blocks alongside text, but a content list with only attachments
+        # gets cleaner results when paired with at least a placeholder.
         user_content.append(
-            {"type": "text", "text": user_text or "(người dùng gửi ảnh)"}
+            {"type": "text", "text": user_text or "(người dùng gửi tệp đính kèm)"}
         )
         messages.append({"role": "user", "content": user_content})
     else:

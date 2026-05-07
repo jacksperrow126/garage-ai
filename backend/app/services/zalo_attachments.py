@@ -104,11 +104,10 @@ def _find_url(d: dict[str, Any]) -> str | None:
     return None
 
 
-def _sniff_mime(data: bytes) -> str:
-    """Detect image MIME from magic bytes — never trust upstream
-    Content-Type. Anthropic only accepts these four MIME values, so
-    we constrain our return to that set; unknown types default to
-    image/jpeg (most common case from Zalo CDN)."""
+def detect_image_mime(data: bytes) -> str | None:
+    """Return the Anthropic-accepted image MIME if the bytes look like
+    one of the four supported formats, else None. Use when the input
+    *might* be an image (e.g. user-uploaded file of unknown type)."""
     if data[:3] == b"\xff\xd8\xff":
         return "image/jpeg"
     if data[:8] == b"\x89PNG\r\n\x1a\n":
@@ -117,8 +116,19 @@ def _sniff_mime(data: bytes) -> str:
         return "image/gif"
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "image/webp"
-    log.warning("unknown image magic bytes %r — defaulting to image/jpeg", data[:8])
-    return "image/jpeg"
+    return None
+
+
+def _sniff_mime(data: bytes) -> str:
+    """Detect image MIME from magic bytes — never trust upstream
+    Content-Type. Use when the caller is confident the input IS an
+    image; falls back to image/jpeg on unknown bytes (Zalo CDN serves
+    jpeg 99% of the time)."""
+    detected = detect_image_mime(data)
+    if detected is None:
+        log.warning("unknown image magic bytes %r — defaulting to image/jpeg", data[:8])
+        return "image/jpeg"
+    return detected
 
 
 async def download_image(url: str) -> ImageInput | None:

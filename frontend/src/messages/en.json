@@ -91,6 +91,23 @@
     "monthly": "Monthly",
     "topProducts": "Top products"
   },
+  "upload": {
+    "badge": "Web upload",
+    "title": "Analyze image / file",
+    "subtitle": "I'll read it and reply both here and in Zalo.",
+    "fileLabel": "Pick a file (image, PDF, or text)",
+    "fileHint": "Up to 10MB. Supports JPG/PNG/GIF/WebP, PDF, text.",
+    "captionLabel": "Note (optional)",
+    "captionPlaceholder": "e.g. 'log this oil to inventory' or 'is this part still usable?'",
+    "submit": "Analyze",
+    "analyzing": "Analyzing...",
+    "resultTitle": "Result",
+    "alsoSentToZalo": "Result also sent to your Zalo chat",
+    "noToken": "Missing token. Ask the bot in Zalo for a new upload link.",
+    "linkExpired": "Link expired. Ask the bot in Zalo for a new upload link.",
+    "fileTooLarge": "File too big (max 10MB).",
+    "unsupportedType": "Unsupported file. Only image, PDF, or text accepted."
+  },
   "common": {
     "loading": "Loading...",
     "error": "Something went wrong",
