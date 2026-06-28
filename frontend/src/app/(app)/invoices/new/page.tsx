@@ -336,15 +336,6 @@ export default function NewInvoicePage() {
                   >
                     {t("addItem")}
                   </button>
-                  {type === "service" && (
-                    <button
-                      type="button"
-                      onClick={() => addLine(group.id, true)}
-                      className="cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 hover:bg-slate-50"
-                    >
-                      {t("addLabor")}
-                    </button>
-                  )}
                 </div>
               </div>
             </div>

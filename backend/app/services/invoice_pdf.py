@@ -222,11 +222,7 @@ def render_invoice_pdf(
     story: list[Any] = []
 
     # ── Garage header: logo (left) · services (center) · business info (right) ─
-    svc_head = ParagraphStyle(
-        "svcHead", parent=base, fontName="Roboto-Bold", fontSize=9, leading=13,
-        textColor=_ACCENT, alignment=1,
-    )
-    svc_item = ParagraphStyle("svcItem", parent=base, fontSize=8.5, leading=12)
+    svc_item = ParagraphStyle("svcItem", parent=base, fontSize=8.5, leading=13)
 
     def _info_block(align: int) -> list[Any]:
         """Business name + details, aligned left (standalone) or right (3-col)."""
@@ -249,11 +245,7 @@ def render_invoice_pdf(
     if logo:
         logo.hAlign = "LEFT"
     services = [s for s in (org.get("services") or []) if str(s).strip()]
-    svc_col: list[Any] = []
-    if services:
-        svc_col.append(Paragraph("CHUYÊN SỬA CHỮA Ô TÔ CÁC LOẠI", svc_head))
-        for s in services:
-            svc_col.append(Paragraph(f"• {s}", svc_item))
+    svc_col: list[Any] = [Paragraph(f"• {s}", svc_item) for s in services]
 
     if logo or services:
         # 3 columns: logo (left) · services (center) · name + info (right).
