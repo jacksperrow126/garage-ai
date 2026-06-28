@@ -366,13 +366,12 @@ def render_invoice_pdf(
     story.append(Spacer(1, 6))
 
     # ── Items table ──────────────────────────────────────────────────
-    sku_style = ParagraphStyle(
-        "sku", parent=base, alignment=1, fontSize=7, leading=9, fontName="Roboto"
-    )
+    # The internal SKU is deliberately not shown — only the human-readable
+    # product/service name (the stored `description`, which falls back to the
+    # product name for product lines).
     header_row = [
         Paragraph("<b>STT</b>", center),
-        Paragraph("<b>Mã SP</b>", center),
-        Paragraph("<b>Mô tả</b>", center),
+        Paragraph("<b>Sản phẩm / Dịch vụ</b>", center),
         Paragraph("<b>SL</b>", center),
         Paragraph("<b>Đơn giá</b>", center),
         Paragraph("<b>Thành tiền</b>", center),
@@ -388,7 +387,6 @@ def render_invoice_pdf(
     def _item_row(idx: int, item: dict[str, Any]) -> list[Any]:
         return [
             Paragraph(str(idx), center),
-            Paragraph(item.get("sku") or "—", sku_style),
             Paragraph(str(item.get("description", "")), base),
             Paragraph(str(item.get("quantity", "")), center),
             Paragraph(_format_vnd(item.get("unit_price")), right),
@@ -407,7 +405,7 @@ def render_invoice_pdf(
         stt = 1
         for label, group_items in groups.items():
             subheader_rows.append(len(rows))
-            rows.append([Paragraph(label, cat_style), "", "", "", "", ""])
+            rows.append([Paragraph(label, cat_style), "", "", "", ""])
             for item in group_items:
                 rows.append(_item_row(stt, item))
                 stt += 1
@@ -415,8 +413,8 @@ def render_invoice_pdf(
         for i, item in enumerate(items, start=1):
             rows.append(_item_row(i, item))
     # Column widths sum to page_w (180mm at A4 with 15mm margins).
-    # STT 12, Mã SP 26, Mô tả 74, SL 12, Đơn giá 26, Thành tiền 30.
-    col_widths = [12 * mm, 26 * mm, 74 * mm, 12 * mm, 26 * mm, 30 * mm]
+    # STT 12, Sản phẩm/Dịch vụ 96, SL 14, Đơn giá 28, Thành tiền 30.
+    col_widths = [12 * mm, 96 * mm, 14 * mm, 28 * mm, 30 * mm]
     table = Table(rows, colWidths=col_widths, repeatRows=1)
     style_ops: list[Any] = [
         ("FONTNAME", (0, 0), (-1, -1), "Roboto"),
