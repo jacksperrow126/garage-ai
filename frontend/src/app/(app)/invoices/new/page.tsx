@@ -11,6 +11,7 @@ import { formatVnd, parseVnd } from "@/lib/format";
 type Line = {
   sku?: string;
   description?: string;
+  category?: string;
   quantity: number;
   unit_price: number;
 };
@@ -34,6 +35,13 @@ export default function NewInvoicePage() {
     return { revenue };
   }, [lines]);
 
+  // Categories already typed on this invoice — offered as autocomplete so the
+  // user reuses one consistent label instead of retyping ("Phụ tùng" twice).
+  const usedCategories = useMemo(
+    () => [...new Set(lines.map((l) => l.category?.trim()).filter(Boolean))] as string[],
+    [lines],
+  );
+
   const create = useMutation<{ id: string }>({
     mutationFn: () => {
       if (type === "import") {
@@ -44,6 +52,7 @@ export default function NewInvoicePage() {
             .filter((l) => l.sku)
             .map((l) => ({
               sku: l.sku!,
+              category: l.category?.trim() || undefined,
               quantity: l.quantity,
               unit_price: l.unit_price,
             })),
@@ -56,6 +65,7 @@ export default function NewInvoicePage() {
         items: lines.map((l) => ({
           sku: l.sku || undefined,
           description: l.description || undefined,
+          category: l.category?.trim() || undefined,
           quantity: l.quantity,
           unit_price: l.unit_price,
         })),
@@ -112,6 +122,11 @@ export default function NewInvoicePage() {
         )}
 
         <div className="space-y-2">
+          <datalist id="invoice-categories">
+            {usedCategories.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
           {lines.map((line, i) => (
             <div key={i} className="flex flex-wrap gap-2 items-end">
               <div className="flex-1 min-w-[140px]">
@@ -126,6 +141,16 @@ export default function NewInvoicePage() {
                       updateLine(i, { description: v, sku: undefined });
                     }
                   }}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2"
+                />
+              </div>
+              <div className="w-32">
+                <div className="text-xs text-slate-500 mb-1">{t("category")}</div>
+                <input
+                  list="invoice-categories"
+                  value={line.category || ""}
+                  onChange={(e) => updateLine(i, { category: e.target.value })}
+                  placeholder={t("categoryPlaceholder")}
                   className="w-full rounded-md border border-slate-300 px-3 py-2"
                 />
               </div>

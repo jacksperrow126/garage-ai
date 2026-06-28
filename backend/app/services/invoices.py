@@ -119,6 +119,7 @@ def create_import_invoice(
                 {
                     "product_id": item.sku,
                     "sku": item.sku,
+                    "category": item.category,
                     "description": item.description or p.get("name", item.sku),
                     "quantity": item.quantity,
                     "unit_price": item.unit_price,
@@ -243,6 +244,7 @@ def create_service_invoice(
                     {
                         "product_id": item.sku,
                         "sku": item.sku,
+                        "category": item.category,
                         "description": item.description or p.get("name", item.sku),
                         "quantity": item.quantity,
                         "unit_price": item.unit_price,
@@ -266,6 +268,7 @@ def create_service_invoice(
                     {
                         "product_id": None,
                         "sku": None,
+                        "category": item.category,
                         "description": item.description,
                         "quantity": item.quantity,
                         "unit_price": item.unit_price,

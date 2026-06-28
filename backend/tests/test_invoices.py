@@ -133,6 +133,39 @@ def test_import_invoice_has_null_profit(owner: Principal, org_id: str) -> None:
     assert inv["total_cost"] == 450_000
 
 
+def test_category_is_persisted_on_lines(owner: Principal, org_id: str) -> None:
+    _seed_product(org_id, owner)
+    invoices.create_import_invoice(
+        org_id,
+        ImportInvoiceCreate(
+            items=[ImportInvoiceItemIn(sku="OIL5W30", quantity=10, unit_price=150_000)]
+        ),
+        owner,
+    )
+    inv = invoices.create_service_invoice(
+        org_id,
+        ServiceInvoiceCreate(
+            customer_name="walk-in",
+            items=[
+                ServiceInvoiceItemIn(
+                    sku="OIL5W30", category="Phụ tùng", quantity=1, unit_price=200_000
+                ),
+                ServiceInvoiceItemIn(
+                    description="Oil change labor",
+                    category="Công thợ",
+                    quantity=1,
+                    unit_price=100_000,
+                ),
+                # No category -> stored as None (ungrouped / legacy shape).
+                ServiceInvoiceItemIn(description="Misc", quantity=1, unit_price=50_000),
+            ],
+        ),
+        owner,
+    )
+    cats = [line["category"] for line in inv["items"]]
+    assert cats == ["Phụ tùng", "Công thợ", None]
+
+
 def test_unknown_sku_rejected(owner: Principal, org_id: str) -> None:
     with pytest.raises(HTTPException) as excinfo:
         invoices.create_import_invoice(

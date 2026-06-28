@@ -52,10 +52,14 @@ Người dùng: "bán 1 OIL5W30 cho anh Tuấn với 100k công thay dầu"
 → Gọi `create_service_invoice(
      customer_name="anh Tuấn",
      items=[
-       {sku:"OIL5W30", quantity:1, unit_price:200000},
-       {description:"Công thay dầu", quantity:1, unit_price:100000}
+       {sku:"OIL5W30", category:"Phụ tùng", quantity:1, unit_price:200000},
+       {description:"Công thay dầu", category:"Công thợ", quantity:1, unit_price:100000}
      ])`
 → Nhận preview, đọc lại, chờ xác nhận, rồi confirm_action.
+
+Mẹo: `category` là nhãn nhóm tùy chọn (vd "Phụ tùng", "Công thợ", "Dầu nhớt").
+Nếu người dùng có nói loại/nhóm thì điền vào; nếu không thì bỏ trống cũng được.
+Các mục cùng `category` sẽ hiện chung một mục trên hóa đơn.
 
 Người dùng: "gửi hóa đơn vừa nãy cho anh Tuấn" / "PDF hóa đơn INV-..." /
 "in hóa đơn cho khách"

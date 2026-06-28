@@ -11,6 +11,9 @@ AdjustmentType = Literal["void", "amend"]
 
 Qty = Annotated[int, Field(gt=0, le=100_000)]
 Description = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=240)]
+# Free-text grouping label typed by the user at invoice time (e.g. "Phụ tùng",
+# "Công thợ"). Items sharing a category render under one header on the invoice.
+Category = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
 
 
 # ── Inputs ──────────────────────────────────────────────────────────────
@@ -18,6 +21,7 @@ Description = Annotated[str, StringConstraints(strip_whitespace=True, min_length
 class ImportInvoiceItemIn(BaseModel):
     sku: Sku
     description: Description | None = None  # optional; service layer falls back to product.name
+    category: Category | None = None  # optional grouping label
     quantity: Qty
     unit_price: VndInt  # import price per unit
 
@@ -39,6 +43,7 @@ class ServiceInvoiceItemIn(BaseModel):
 
     sku: Sku | None = None
     description: Description | None = None
+    category: Category | None = None  # optional grouping label
     quantity: Qty
     unit_price: VndInt  # selling price per unit (or labor fee per unit)
 
@@ -62,6 +67,7 @@ class ServiceInvoiceCreate(BaseModel):
 class InvoiceLine(BaseModel):
     product_id: str | None = None
     sku: Sku | None = None
+    category: str | None = None  # grouping label; None = ungrouped (legacy/quick entry)
     description: str
     quantity: int = Field(gt=0)
     unit_price: VndInt

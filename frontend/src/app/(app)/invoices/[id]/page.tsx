@@ -4,13 +4,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 import { api } from "@/lib/api";
 import { formatDate, formatVnd } from "@/lib/format";
 
 type InvoiceLine = {
   sku: string | null;
+  category: string | null;
   description: string;
   quantity: number;
   unit_price: number;
@@ -49,6 +50,17 @@ export default function InvoiceDetailPage() {
   if (!invoice.data) return <div className="text-slate-500">Not found.</div>;
 
   const inv = invoice.data;
+  // Continuous line index across category groups so the rendered rows stay
+  // 1:1 with what the PDF shows. Only group when a category is present.
+  const hasCategories = inv.items.some((it) => (it.category || "").trim());
+  const groups = hasCategories
+    ? inv.items.reduce<Record<string, InvoiceLine[]>>((acc, it) => {
+        const label = (it.category || "").trim() || t("uncategorized");
+        (acc[label] ??= []).push(it);
+        return acc;
+      }, {})
+    : { "": inv.items };
+
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-3">
@@ -80,17 +92,28 @@ export default function InvoiceDetailPage() {
             </tr>
           </thead>
           <tbody>
-            {inv.items.map((it, i) => (
-              <tr key={i} className="border-t border-slate-100">
-                <td className="p-2 font-mono text-xs">{it.sku ?? "—"}</td>
-                <td className="p-2">{it.description}</td>
-                <td className="p-2 text-right">{it.quantity}</td>
-                <td className="p-2 text-right">{formatVnd(it.unit_price)}</td>
-                <td className="p-2 text-right text-slate-500">
-                  {formatVnd(it.cost_price)}
-                </td>
-                <td className="p-2 text-right">{formatVnd(it.line_total_revenue)}</td>
-              </tr>
+            {Object.entries(groups).map(([label, items]) => (
+              <Fragment key={label || "_"}>
+                {label && (
+                  <tr className="border-t border-slate-200 bg-slate-50">
+                    <td colSpan={6} className="p-2 font-medium text-slate-700">
+                      {label}
+                    </td>
+                  </tr>
+                )}
+                {items.map((it, i) => (
+                  <tr key={`${label}-${i}`} className="border-t border-slate-100">
+                    <td className="p-2 font-mono text-xs">{it.sku ?? "—"}</td>
+                    <td className="p-2">{it.description}</td>
+                    <td className="p-2 text-right">{it.quantity}</td>
+                    <td className="p-2 text-right">{formatVnd(it.unit_price)}</td>
+                    <td className="p-2 text-right text-slate-500">
+                      {formatVnd(it.cost_price)}
+                    </td>
+                    <td className="p-2 text-right">{formatVnd(it.line_total_revenue)}</td>
+                  </tr>
+                ))}
+              </Fragment>
             ))}
           </tbody>
           <tfoot className="border-t border-slate-200">

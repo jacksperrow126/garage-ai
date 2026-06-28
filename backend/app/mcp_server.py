@@ -227,7 +227,8 @@ def create_import_invoice(
     supplier_name: str | None = None,
     notes: str = "",
 ) -> dict[str, Any]:
-    """Propose an import (stock purchase). `items` = [{sku, quantity, unit_price}].
+    """Propose an import (stock purchase). `items` = [{sku, category?, quantity, unit_price}].
+    `category` is an optional grouping label shown as a section header on the document.
     Returns preview_id + summary; call confirm_action(org_id, preview_id) to commit."""
     parsed_items = [ImportInvoiceItemIn(**i) for i in items]
     data = ImportInvoiceCreate(
@@ -264,8 +265,11 @@ def create_service_invoice(
     customer_name: str | None = None,
     notes: str = "",
 ) -> dict[str, Any]:
-    """Propose a service/sales invoice. `items` = [{sku?, description?, quantity, unit_price}].
-    Returns preview_id + summary; call confirm_action(org_id, preview_id) to commit."""
+    """Propose a service/sales invoice.
+    `items` = [{sku?, description?, category?, quantity, unit_price}].
+    `category` is an optional grouping label (e.g. "Phụ tùng", "Công thợ") shown as a
+    section header on the invoice. Returns preview_id + summary; call
+    confirm_action(org_id, preview_id) to commit."""
     parsed_items = [ServiceInvoiceItemIn(**i) for i in items]
     data = ServiceInvoiceCreate(
         customer_id=customer_id,

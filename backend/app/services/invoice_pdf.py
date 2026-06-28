@@ -310,17 +310,43 @@ def render_invoice_pdf(
         Paragraph("<b>Đơn giá</b>", center),
         Paragraph("<b>Thành tiền</b>", center),
     ]
-    rows: list[list[Any]] = [header_row]
-    for i, item in enumerate(invoice.get("items", []), start=1):
-        sku = item.get("sku") or "—"
-        rows.append([
-            Paragraph(str(i), center),
-            Paragraph(sku, sku_style),
+    cat_style = ParagraphStyle(
+        "catHeader", parent=base, fontName="Roboto-Bold", fontSize=9, leading=12
+    )
+    items = invoice.get("items", [])
+    # Group items under category subheaders only when at least one line carries
+    # a category — legacy/quick invoices (no categories) keep the flat layout.
+    has_categories = any((it.get("category") or "").strip() for it in items)
+
+    def _item_row(idx: int, item: dict[str, Any]) -> list[Any]:
+        return [
+            Paragraph(str(idx), center),
+            Paragraph(item.get("sku") or "—", sku_style),
             Paragraph(str(item.get("description", "")), base),
             Paragraph(str(item.get("quantity", "")), center),
             Paragraph(_format_vnd(item.get("unit_price")), right),
             Paragraph(_format_vnd(item.get("line_total_revenue")), right),
-        ])
+        ]
+
+    rows: list[list[Any]] = [header_row]
+    subheader_rows: list[int] = []  # row indices that hold a category label
+    if has_categories:
+        # Bucket by category, preserving first-appearance order; lines without
+        # a category fall into a trailing "Khác" (Other) group.
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for item in items:
+            label = (item.get("category") or "").strip() or "Khác"
+            groups.setdefault(label, []).append(item)
+        stt = 1
+        for label, group_items in groups.items():
+            subheader_rows.append(len(rows))
+            rows.append([Paragraph(label, cat_style), "", "", "", "", ""])
+            for item in group_items:
+                rows.append(_item_row(stt, item))
+                stt += 1
+    else:
+        for i, item in enumerate(items, start=1):
+            rows.append(_item_row(i, item))
     # Total row — span label across the first 5 columns so it has room
     # to render "TỔNG CỘNG" on one line, and the amount goes in the
     # rightmost column on its own line.
@@ -337,25 +363,28 @@ def render_invoice_pdf(
     # STT 10, Mã SP 24, Mô tả 44, SL 8, Đơn giá 18, Thành tiền 20.
     col_widths = [10 * mm, 24 * mm, 44 * mm, 8 * mm, 18 * mm, 20 * mm]
     table = Table(rows, colWidths=col_widths, repeatRows=1)
-    table.setStyle(
-        TableStyle([
-            ("FONTNAME", (0, 0), (-1, -1), "Roboto"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("BACKGROUND", (0, 0), (-1, 0), _BG_HEADER),
-            ("LINEBELOW", (0, 0), (-1, 0), 0.6, _ACCENT),
-            ("LINEABOVE", (0, -1), (-1, -1), 0.6, _ACCENT),
-            ("BOX", (0, 0), (-1, -2), 0.4, _LINE),
-            ("INNERGRID", (0, 0), (-1, -2), 0.2, _LINE_LIGHT),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 3),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            # Span the total-row label across cols 0..4 so "TỔNG CỘNG"
-            # has room to render on one line.
-            ("SPAN", (0, -1), (4, -1)),
-        ])
-    )
+    style_ops: list[Any] = [
+        ("FONTNAME", (0, 0), (-1, -1), "Roboto"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("BACKGROUND", (0, 0), (-1, 0), _BG_HEADER),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.6, _ACCENT),
+        ("LINEABOVE", (0, -1), (-1, -1), 0.6, _ACCENT),
+        ("BOX", (0, 0), (-1, -2), 0.4, _LINE),
+        ("INNERGRID", (0, 0), (-1, -2), 0.2, _LINE_LIGHT),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        # Span the total-row label across cols 0..4 so "TỔNG CỘNG"
+        # has room to render on one line.
+        ("SPAN", (0, -1), (4, -1)),
+    ]
+    # Category subheaders: span the full width and tint the background.
+    for r in subheader_rows:
+        style_ops.append(("SPAN", (0, r), (-1, r)))
+        style_ops.append(("BACKGROUND", (0, r), (-1, r), _LINE_LIGHT))
+    table.setStyle(TableStyle(style_ops))
     story.append(table)
 
     # ── Notes ────────────────────────────────────────────────────────
