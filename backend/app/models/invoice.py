@@ -61,6 +61,8 @@ class ServiceInvoiceCreate(BaseModel):
     items: list[ServiceInvoiceItemIn] = Field(min_length=1)
     discount: VndInt = 0  # đồng off the gross subtotal
     deposit: VndInt = 0  # đồng already paid in advance (đưa trước)
+    vehicle_make: Annotated[str, StringConstraints(strip_whitespace=True, max_length=60)] = ""
+    odometer: Annotated[int, Field(ge=0, le=10_000_000)] | None = None  # km
     notes: Annotated[str, StringConstraints(max_length=500)] = ""
 
 
@@ -95,6 +97,8 @@ class Invoice(BaseModel):
     discount: VndInt = 0  # service invoices only
     deposit: VndInt = 0  # service invoices only
     amount_due: VndInt = 0  # total_revenue - discount - deposit (gross, VAT-incl)
+    vehicle_make: str = ""  # service invoices only
+    odometer: int | None = None  # km, service invoices only
     notes: str = ""
 
 

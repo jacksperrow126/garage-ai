@@ -331,10 +331,19 @@ def render_invoice_pdf(
                         ParagraphStyle("note", parent=base, fontSize=8, textColor=_MUTED),
                     )
                 )
-        # Vehicle column on the right.
+        # Vehicle column on the right. Prefer the car info captured on the
+        # invoice (make + odometer); fall back to the customer's saved vehicle.
         right_lines = [Paragraph("XE", section_label)]
+        inv_make = (invoice.get("vehicle_make") or "").strip()
+        inv_odo = invoice.get("odometer")
         vehicles = (customer or {}).get("vehicles") or []
-        if vehicles:
+        if inv_make or inv_odo:
+            if inv_make:
+                right_lines.append(Paragraph(inv_make, plate_style))
+            if inv_odo:
+                km = f"{int(inv_odo):,}".replace(",", ".")
+                right_lines.append(Paragraph(f"Số km: {km} km", base))
+        elif vehicles:
             v = vehicles[0]
             v_lines = _vehicle_lines(v)
             if v_lines:
@@ -530,31 +539,6 @@ def render_invoice_pdf(
             Paragraph(
                 f"<b>Ghi chú:</b> {invoice['notes']}",
                 ParagraphStyle("notes", parent=base, fontSize=9, leading=12),
-            )
-        )
-
-    # ── Warranty terms (service invoices only) ───────────────────────
-    if not is_import:
-        story.append(Spacer(1, 8))
-        warranty_style = ParagraphStyle(
-            "warranty", parent=base, fontSize=8, leading=11, textColor=_MUTED
-        )
-        story.append(
-            Paragraph("ĐIỀU KHOẢN BẢO HÀNH", section_label)
-        )
-        story.append(
-            Paragraph("• Bảo hành phụ tùng theo nhà sản xuất.", warranty_style)
-        )
-        story.append(
-            Paragraph(
-                "• Bảo hành công thợ 7 ngày kể từ ngày xuất hóa đơn.",
-                warranty_style,
-            )
-        )
-        story.append(
-            Paragraph(
-                "• Vui lòng giữ hóa đơn để đối chiếu khi cần thiết.",
-                warranty_style,
             )
         )
 

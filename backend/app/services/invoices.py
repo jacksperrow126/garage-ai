@@ -323,6 +323,8 @@ def create_service_invoice(
             "discount": data.discount,
             "deposit": data.deposit,
             "amount_due": amount_due,
+            "vehicle_make": data.vehicle_make,
+            "odometer": data.odometer,
             "notes": data.notes,
         }
         tx.set(invoice_ref, {**invoice_doc, "created_at": server_timestamp()})
@@ -393,6 +395,8 @@ def build_preview(data: ImportInvoiceCreate | ServiceInvoiceCreate) -> dict[str,
         "discount": discount,
         "deposit": deposit,
         "amount_due": max(0, total_revenue - discount - deposit),
+        "vehicle_make": getattr(data, "vehicle_make", ""),
+        "odometer": getattr(data, "odometer", None),
         "notes": data.notes,
     }
 

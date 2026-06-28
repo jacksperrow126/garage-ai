@@ -36,6 +36,8 @@ export default function NewInvoicePage() {
   const nextId = useRef(1);
   const [type, setType] = useState<InvoiceType>("service");
   const [customerName, setCustomerName] = useState("");
+  const [vehicleMake, setVehicleMake] = useState("");
+  const [odometer, setOdometer] = useState("");
   const [supplierName, setSupplierName] = useState("");
   const [discount, setDiscount] = useState(0);
   const [deposit, setDeposit] = useState(0);
@@ -89,11 +91,13 @@ export default function NewInvoicePage() {
           quantity: line.quantity,
           unit_price: line.unit_price,
         })),
+      vehicle_make: vehicleMake.trim() || undefined,
+      odometer: odometer ? Number(odometer) : undefined,
       discount,
       deposit,
       notes,
     };
-  }, [groups, type, supplierName, customerName, discount, deposit, notes]);
+  }, [groups, type, supplierName, customerName, vehicleMake, odometer, discount, deposit, notes]);
 
   const create = useMutation<{ id: string }>({
     mutationFn: () => api.post<{ id: string }>("/invoices", buildPayload()),
@@ -198,13 +202,38 @@ export default function NewInvoicePage() {
 
       <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
         {type === "service" ? (
-          <Field label={t("customer")}>
-            <input
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2"
-            />
-          </Field>
+          <>
+            <Field label={t("customer")}>
+              <input
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                className="w-full rounded-md border border-slate-300 px-3 py-2"
+              />
+            </Field>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <Field label={t("vehicleMake")}>
+                  <input
+                    value={vehicleMake}
+                    onChange={(e) => setVehicleMake(e.target.value)}
+                    placeholder={t("vehicleMakePlaceholder")}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2"
+                  />
+                </Field>
+              </div>
+              <div className="w-40">
+                <Field label={t("odometer")}>
+                  <input
+                    inputMode="numeric"
+                    value={odometer}
+                    onChange={(e) => setOdometer(e.target.value.replace(/[^0-9]/g, ""))}
+                    placeholder="km"
+                    className="w-full rounded-md border border-slate-300 px-3 py-2"
+                  />
+                </Field>
+              </div>
+            </div>
+          </>
         ) : (
           <Field label={t("supplier")}>
             <input

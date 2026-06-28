@@ -79,7 +79,10 @@
     "amountDue": "Amount due",
     "preview": "Preview",
     "previewUpdating": "Updating…",
-    "previewEmpty": "Add a line item to preview the invoice."
+    "previewEmpty": "Add a line item to preview the invoice.",
+    "vehicleMake": "Vehicle",
+    "vehicleMakePlaceholder": "e.g. Toyota Vios",
+    "odometer": "Odometer"
   },
   "customers": {
     "title": "Customers",

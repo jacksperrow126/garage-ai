@@ -79,7 +79,10 @@
     "amountDue": "Tổng thanh toán",
     "preview": "Xem trước",
     "previewUpdating": "Đang cập nhật…",
-    "previewEmpty": "Nhập dòng hàng để xem trước hóa đơn."
+    "previewEmpty": "Nhập dòng hàng để xem trước hóa đơn.",
+    "vehicleMake": "Hãng xe",
+    "vehicleMakePlaceholder": "vd: Toyota Vios",
+    "odometer": "Số km"
   },
   "customers": {
     "title": "Khách hàng",
