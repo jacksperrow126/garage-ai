@@ -79,7 +79,7 @@
     "amountDue": "Amount due",
     "preview": "Preview",
     "previewUpdating": "Updating…",
-    "previewEmpty": "Add a priced line to preview the invoice."
+    "previewEmpty": "Add a line item to preview the invoice."
   },
   "customers": {
     "title": "Customers",

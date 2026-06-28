@@ -78,13 +78,17 @@ export default function NewInvoicePage() {
     return {
       type: "service",
       customer_name: customerName || null,
-      items: items.map(({ line, category }) => ({
-        sku: line.sku || undefined,
-        description: line.description || undefined,
-        category,
-        quantity: line.quantity,
-        unit_price: line.unit_price,
-      })),
+      // Skip blank lines (no sku and no description) — a service item must
+      // carry one or the other, else the API rejects the whole payload.
+      items: items
+        .filter(({ line }) => line.sku || line.description)
+        .map(({ line, category }) => ({
+          sku: line.sku || undefined,
+          description: line.description || undefined,
+          category,
+          quantity: line.quantity,
+          unit_price: line.unit_price,
+        })),
       discount,
       deposit,
       notes,
@@ -102,13 +106,18 @@ export default function NewInvoicePage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  const hasPricedLine = useMemo(
-    () => groups.some((g) => g.lines.some((l) => (l.sku || l.description) && l.unit_price > 0)),
-    [groups],
+  // A line the API will accept: import needs a sku; service needs sku OR
+  // description. Without one, the payload 422s, so don't bother previewing.
+  const canPreview = useMemo(
+    () =>
+      groups.some((g) =>
+        g.lines.some((l) => (type === "import" ? !!l.sku : !!(l.sku || l.description))),
+      ),
+    [groups, type],
   );
 
   useEffect(() => {
-    if (!hasPricedLine) {
+    if (!canPreview) {
       setPreviewUrl(null);
       return;
     }
@@ -132,7 +141,7 @@ export default function NewInvoicePage() {
       clearTimeout(handle);
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [buildPayload, hasPricedLine]);
+  }, [buildPayload, canPreview]);
 
   function updateGroup(gid: number, patch: Partial<Group>) {
     setGroups((gs) => gs.map((g) => (g.id === gid ? { ...g, ...patch } : g)));
@@ -242,8 +251,12 @@ export default function NewInvoicePage() {
                         value={line.sku || line.description || ""}
                         onChange={(e) => {
                           const v = e.target.value;
-                          if (/^[A-Z0-9\-_]+$/.test(v.toUpperCase()) && v.length <= 40) {
-                            updateLine(group.id, i, { sku: v.toUpperCase(), description: undefined });
+                          // Treat a code-like token (letters/digits/-/_ , no spaces)
+                          // as a SKU, anything else as a free-text description.
+                          // Keep the value as typed — the backend normalizes a
+                          // SKU's case only when it's used as a product key.
+                          if (/^[A-Za-z0-9\-_]+$/.test(v) && v.length <= 40) {
+                            updateLine(group.id, i, { sku: v, description: undefined });
                           } else {
                             updateLine(group.id, i, { description: v, sku: undefined });
                           }

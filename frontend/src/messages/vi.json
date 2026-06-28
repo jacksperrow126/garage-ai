@@ -79,7 +79,7 @@
     "amountDue": "Tổng thanh toán",
     "preview": "Xem trước",
     "previewUpdating": "Đang cập nhật…",
-    "previewEmpty": "Thêm dòng có giá để xem trước hóa đơn."
+    "previewEmpty": "Nhập dòng hàng để xem trước hóa đơn."
   },
   "customers": {
     "title": "Khách hàng",
