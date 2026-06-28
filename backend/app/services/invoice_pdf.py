@@ -243,10 +243,6 @@ def render_invoice_pdf(
             block.append(Paragraph(f"<b>Địa chỉ:</b> {org['address']}", meta_style))
         if org.get("phone"):
             block.append(Paragraph(f"<b>Hotline:</b> {org['phone']}", meta_style))
-        banks = (("Ngân hàng", "bank_name"), ("Số TK", "bank_account"), ("Chủ TK", "bank_holder"))
-        for lbl, key in banks:
-            if org.get(key):
-                block.append(Paragraph(f"<b>{lbl}:</b> {org[key]}", meta_style))
         return block
 
     logo = _logo_flowable(org.get("logo"), max_w=page_w * 0.22, max_h=26 * mm)
@@ -511,6 +507,21 @@ def render_invoice_pdf(
         ])
     )
     story.append(totals_wrap)
+
+    # ── Bank transfer info (service invoices) ────────────────────────
+    # Moved out of the header to keep the top clean; it's payment guidance,
+    # so it sits just below the amount due.
+    bank_fields = (("Ngân hàng", "bank_name"), ("Số TK", "bank_account"), ("Chủ TK", "bank_holder"))
+    bank_bits = [f"<b>{lbl}:</b> {org[key]}" for lbl, key in bank_fields if org.get(key)]
+    if bank_bits and not is_import:
+        story.append(Spacer(1, 10))
+        story.append(Paragraph("THÔNG TIN CHUYỂN KHOẢN", section_label))
+        story.append(
+            Paragraph(
+                " &nbsp;•&nbsp; ".join(bank_bits),
+                ParagraphStyle("bank", parent=base, fontSize=9, leading=13),
+            )
+        )
 
     # ── Notes ────────────────────────────────────────────────────────
     if invoice.get("notes"):
