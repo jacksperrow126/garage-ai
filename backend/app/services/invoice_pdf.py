@@ -221,43 +221,52 @@ def render_invoice_pdf(
 
     story: list[Any] = []
 
-    # ── Garage header: business info (left) + logo & services (right) ─
-    hdr_name = ParagraphStyle(
-        "hdrName", parent=base, fontName="Roboto-Bold", fontSize=16, leading=19
-    )
-    hdr_meta = ParagraphStyle("hdrMeta", parent=base, fontSize=8.5, leading=12)
+    # ── Garage header: logo (left) · services (center) · business info (right) ─
     svc_head = ParagraphStyle(
-        "svcHead", parent=base, fontName="Roboto-Bold", fontSize=9, leading=13, textColor=_ACCENT
+        "svcHead", parent=base, fontName="Roboto-Bold", fontSize=9, leading=13,
+        textColor=_ACCENT, alignment=1,
     )
     svc_item = ParagraphStyle("svcItem", parent=base, fontSize=8.5, leading=12)
 
-    left_hdr: list[Any] = [Paragraph((org.get("name") or "—").upper(), hdr_name)]
-    if org.get("tax_id"):
-        left_hdr.append(Paragraph(f"<b>MST:</b> {org['tax_id']}", hdr_meta))
-    if org.get("address"):
-        left_hdr.append(Paragraph(f"<b>Địa chỉ:</b> {org['address']}", hdr_meta))
-    if org.get("phone"):
-        left_hdr.append(Paragraph(f"<b>Hotline:</b> {org['phone']}", hdr_meta))
-    bank_fields = (("Ngân hàng", "bank_name"), ("Số TK", "bank_account"), ("Chủ TK", "bank_holder"))
-    for label, key in bank_fields:
-        if org.get(key):
-            left_hdr.append(Paragraph(f"<b>{label}:</b> {org[key]}", hdr_meta))
+    def _info_block(align: int) -> list[Any]:
+        """Business name + details, aligned left (standalone) or right (3-col)."""
+        name_style = ParagraphStyle(
+            "hdrName", parent=base, fontName="Roboto-Bold", fontSize=16, leading=19, alignment=align
+        )
+        meta_style = ParagraphStyle(
+            "hdrMeta", parent=base, fontSize=8.5, leading=12, alignment=align
+        )
+        block: list[Any] = [Paragraph((org.get("name") or "—").upper(), name_style)]
+        if org.get("tax_id"):
+            block.append(Paragraph(f"<b>MST:</b> {org['tax_id']}", meta_style))
+        if org.get("address"):
+            block.append(Paragraph(f"<b>Địa chỉ:</b> {org['address']}", meta_style))
+        if org.get("phone"):
+            block.append(Paragraph(f"<b>Hotline:</b> {org['phone']}", meta_style))
+        banks = (("Ngân hàng", "bank_name"), ("Số TK", "bank_account"), ("Chủ TK", "bank_holder"))
+        for lbl, key in banks:
+            if org.get(key):
+                block.append(Paragraph(f"<b>{lbl}:</b> {org[key]}", meta_style))
+        return block
 
-    right_hdr: list[Any] = []
-    logo = _logo_flowable(org.get("logo"), max_w=page_w * 0.42, max_h=24 * mm)
+    logo = _logo_flowable(org.get("logo"), max_w=page_w * 0.22, max_h=26 * mm)
     if logo:
-        right_hdr.append(logo)
-        right_hdr.append(Spacer(1, 4))
+        logo.hAlign = "LEFT"
     services = [s for s in (org.get("services") or []) if str(s).strip()]
+    svc_col: list[Any] = []
     if services:
-        right_hdr.append(Paragraph("CHUYÊN SỬA CHỮA Ô TÔ CÁC LOẠI", svc_head))
+        svc_col.append(Paragraph("CHUYÊN SỬA CHỮA Ô TÔ CÁC LOẠI", svc_head))
         for s in services:
-            right_hdr.append(Paragraph(f"• {s}", svc_item))
+            svc_col.append(Paragraph(f"• {s}", svc_item))
 
-    if right_hdr:
-        header_tbl = Table([[left_hdr, right_hdr]], colWidths=[page_w * 0.55, page_w * 0.45])
+    if logo or services:
+        # 3 columns: logo (left) · services (center) · name + info (right).
+        header_tbl = Table(
+            [[logo or "", svc_col, _info_block(2)]],
+            colWidths=[page_w * 0.24, page_w * 0.36, page_w * 0.40],
+        )
     else:
-        header_tbl = Table([[left_hdr]], colWidths=[page_w])
+        header_tbl = Table([[_info_block(0)]], colWidths=[page_w])
     header_tbl.setStyle(
         TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
