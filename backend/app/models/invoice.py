@@ -59,6 +59,8 @@ class ServiceInvoiceCreate(BaseModel):
     customer_id: str | None = None
     customer_name: Annotated[str, StringConstraints(max_length=120)] | None = None
     items: list[ServiceInvoiceItemIn] = Field(min_length=1)
+    discount: VndInt = 0  # đồng off the gross subtotal
+    deposit: VndInt = 0  # đồng already paid in advance (đưa trước)
     notes: Annotated[str, StringConstraints(max_length=500)] = ""
 
 
@@ -90,6 +92,9 @@ class Invoice(BaseModel):
     total_revenue: VndInt
     total_cost: VndInt
     profit: int | None = None  # null for import invoices
+    discount: VndInt = 0  # service invoices only
+    deposit: VndInt = 0  # service invoices only
+    amount_due: VndInt = 0  # total_revenue - discount - deposit (gross, VAT-incl)
     notes: str = ""
 
 

@@ -66,6 +66,27 @@ def create_invoice(
     return invoices.create_service_invoice(org_id, payload, principal)
 
 
+@router.post("/preview-pdf")
+def preview_invoice_pdf(
+    payload: InvoiceBody = Body(...),
+    _: Principal = Depends(require_user),
+    org_id: str = Depends(require_org_id),
+) -> Response:
+    """Render a PDF preview from an *unsaved* invoice payload — used to show a
+    live preview beside the creation form. Nothing is persisted; no stock/cost
+    lookups, so it never fails on an unknown SKU."""
+    org = orgs_service.get_org(org_id)
+    if not org:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "org not found")
+    inv = invoices.build_preview(payload)
+    pdf_bytes = invoice_pdf.render_invoice_pdf(org, inv)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="preview.pdf"'},
+    )
+
+
 @router.get("/{invoice_id}/pdf")
 def download_invoice_pdf(
     invoice_id: str,

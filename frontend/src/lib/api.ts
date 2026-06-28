@@ -61,9 +61,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await res.json()) as T;
 }
 
-async function requestBlob(path: string): Promise<{ blob: Blob; filename: string | null }> {
-  const headers = { ...(await authHeaders()) };
-  const res = await fetch(`/api/v1${path}`, { headers });
+async function requestBlob(
+  path: string,
+  init: RequestInit = {},
+): Promise<{ blob: Blob; filename: string | null }> {
+  const headers = {
+    ...(init.body ? { "Content-Type": "application/json" } : {}),
+    ...(await authHeaders()),
+    ...(init.headers ?? {}),
+  };
+  const res = await fetch(`/api/v1${path}`, { ...init, headers });
   if (!res.ok) {
     let body: unknown;
     try {
@@ -87,4 +94,6 @@ export const api = {
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   getBlob: (path: string) => requestBlob(path),
+  postBlob: (path: string, body: unknown) =>
+    requestBlob(path, { method: "POST", body: JSON.stringify(body) }),
 };

@@ -166,6 +166,48 @@ def test_category_is_persisted_on_lines(owner: Principal, org_id: str) -> None:
     assert cats == ["Phụ tùng", "Công thợ", None]
 
 
+def test_service_invoice_discount_deposit(owner: Principal, org_id: str) -> None:
+    _seed_product(org_id, owner)
+    invoices.create_import_invoice(
+        org_id,
+        ImportInvoiceCreate(
+            items=[ImportInvoiceItemIn(sku="OIL5W30", quantity=10, unit_price=150_000)]
+        ),
+        owner,
+    )
+    inv = invoices.create_service_invoice(
+        org_id,
+        ServiceInvoiceCreate(
+            items=[ServiceInvoiceItemIn(sku="OIL5W30", quantity=2, unit_price=200_000)],
+            discount=50_000,
+            deposit=100_000,
+        ),
+        owner,
+    )
+    assert inv["total_revenue"] == 400_000
+    assert inv["discount"] == 50_000
+    assert inv["deposit"] == 100_000
+    assert inv["amount_due"] == 250_000  # 400k - 50k - 100k
+
+
+def test_build_preview_no_persistence(owner: Principal, org_id: str) -> None:
+    # Unknown SKU + no stock: preview must still build (no lookups, no write).
+    data = ServiceInvoiceCreate(
+        customer_name="Khách lẻ",
+        items=[
+            ServiceInvoiceItemIn(sku="GHOST", category="Phụ tùng", quantity=1, unit_price=300_000),
+            ServiceInvoiceItemIn(description="Công thợ", quantity=1, unit_price=100_000),
+        ],
+        discount=40_000,
+    )
+    preview = invoices.build_preview(data)
+    assert preview["total_revenue"] == 400_000
+    assert preview["amount_due"] == 360_000
+    assert [line["category"] for line in preview["items"]] == ["Phụ tùng", None]
+    # Nothing was written — the ghost SKU never became a product.
+    assert inventory.get_product(org_id, "GHOST") is None
+
+
 def test_unknown_sku_rejected(owner: Principal, org_id: str) -> None:
     with pytest.raises(HTTPException) as excinfo:
         invoices.create_import_invoice(

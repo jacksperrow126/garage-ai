@@ -10,6 +10,7 @@
     "customers": "Khách hàng",
     "suppliers": "Nhà cung cấp",
     "reports": "Báo cáo",
+    "settings": "Cài đặt",
     "logout": "Đăng xuất"
   },
   "auth": {
@@ -72,7 +73,13 @@
     "adjustments": "Điều chỉnh",
     "downloadPdf": "Tải PDF",
     "downloadPdfPreparing": "Đang tạo PDF...",
-    "downloadPdfFailed": "Tạo PDF thất bại"
+    "downloadPdfFailed": "Tạo PDF thất bại",
+    "discount": "Giảm giá",
+    "deposit": "Đưa trước",
+    "amountDue": "Tổng thanh toán",
+    "preview": "Xem trước",
+    "previewUpdating": "Đang cập nhật…",
+    "previewEmpty": "Thêm dòng có giá để xem trước hóa đơn."
   },
   "customers": {
     "title": "Khách hàng",
@@ -111,6 +118,29 @@
     "linkExpired": "Link đã hết hạn. Vào Zalo nhắn bot để lấy link mới.",
     "fileTooLarge": "File quá lớn (tối đa 10MB).",
     "unsupportedType": "Loại file không hỗ trợ. Chỉ nhận ảnh, PDF, hoặc text."
+  },
+  "settings": {
+    "title": "Cài đặt",
+    "subtitle": "Thông tin hiển thị trên hóa đơn in.",
+    "headerSection": "Thông tin cửa hàng",
+    "bankSection": "Tài khoản ngân hàng",
+    "servicesSection": "Dịch vụ (in trên hóa đơn)",
+    "orgName": "Tên cửa hàng",
+    "taxId": "Mã số thuế",
+    "address": "Địa chỉ",
+    "phone": "Hotline",
+    "bankName": "Ngân hàng",
+    "bankAccount": "Số tài khoản",
+    "bankHolder": "Chủ tài khoản",
+    "uploadLogo": "Tải logo lên",
+    "removeLogo": "Xóa logo",
+    "noLogo": "Chưa có logo",
+    "logoHint": "PNG/JPG, tự động thu nhỏ còn 400px.",
+    "logoError": "Ảnh không hợp lệ.",
+    "servicesHint": "Mỗi dòng là một dịch vụ (tối đa 12 dòng).",
+    "servicesPlaceholder": "Máy – Gầm – Điện ô tô\nĐồng – Sơn – Phục hồi tai nạn\nRửa xe – Vệ sinh nội thất",
+    "save": "Lưu",
+    "saved": "Đã lưu."
   },
   "common": {
     "loading": "Đang tải...",

@@ -3,7 +3,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
 import { formatVnd, parseVnd } from "@/lib/format";
@@ -37,6 +37,8 @@ export default function NewInvoicePage() {
   const [type, setType] = useState<InvoiceType>("service");
   const [customerName, setCustomerName] = useState("");
   const [supplierName, setSupplierName] = useState("");
+  const [discount, setDiscount] = useState(0);
+  const [deposit, setDeposit] = useState(0);
   const [notes, setNotes] = useState("");
   const [groups, setGroups] = useState<Group[]>([
     { id: 0, name: "", lines: [newLine()] },
@@ -47,45 +49,90 @@ export default function NewInvoicePage() {
       (s, g) => s + g.lines.reduce((ls, l) => ls + l.quantity * l.unit_price, 0),
       0,
     );
-    return { revenue };
-  }, [groups]);
+    const amountDue = Math.max(0, revenue - discount - deposit);
+    return { revenue, amountDue };
+  }, [groups, discount, deposit]);
+
+  // Build the request body for the current form state. Shared by both the
+  // create mutation and the live preview so they can never diverge.
+  const buildPayload = useCallback(() => {
+    // Flatten groups → flat items, tagging each with its group's category.
+    const items = groups.flatMap((g) =>
+      g.lines.map((l) => ({ line: l, category: g.name.trim() || undefined })),
+    );
+    if (type === "import") {
+      return {
+        type: "import",
+        supplier_name: supplierName || null,
+        items: items
+          .filter(({ line }) => line.sku)
+          .map(({ line, category }) => ({
+            sku: line.sku!,
+            category,
+            quantity: line.quantity,
+            unit_price: line.unit_price,
+          })),
+        notes,
+      };
+    }
+    return {
+      type: "service",
+      customer_name: customerName || null,
+      items: items.map(({ line, category }) => ({
+        sku: line.sku || undefined,
+        description: line.description || undefined,
+        category,
+        quantity: line.quantity,
+        unit_price: line.unit_price,
+      })),
+      discount,
+      deposit,
+      notes,
+    };
+  }, [groups, type, supplierName, customerName, discount, deposit, notes]);
 
   const create = useMutation<{ id: string }>({
-    mutationFn: () => {
-      // Flatten groups → flat items, tagging each with its group's category.
-      const items = groups.flatMap((g) =>
-        g.lines.map((l) => ({ line: l, category: g.name.trim() || undefined })),
-      );
-      if (type === "import") {
-        return api.post<{ id: string }>("/invoices", {
-          type: "import",
-          supplier_name: supplierName || null,
-          items: items
-            .filter(({ line }) => line.sku)
-            .map(({ line, category }) => ({
-              sku: line.sku!,
-              category,
-              quantity: line.quantity,
-              unit_price: line.unit_price,
-            })),
-          notes,
-        });
-      }
-      return api.post<{ id: string }>("/invoices", {
-        type: "service",
-        customer_name: customerName || null,
-        items: items.map(({ line, category }) => ({
-          sku: line.sku || undefined,
-          description: line.description || undefined,
-          category,
-          quantity: line.quantity,
-          unit_price: line.unit_price,
-        })),
-        notes,
-      });
-    },
+    mutationFn: () => api.post<{ id: string }>("/invoices", buildPayload()),
     onSuccess: (inv) => router.replace(`/invoices/${inv.id}`),
   });
+
+  // ── Live PDF preview (debounced) ────────────────────────────────────
+  // POST the unsaved payload to the preview endpoint and show the real PDF
+  // (exact print output) in an iframe. Only fires once there's a priced line.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  const hasPricedLine = useMemo(
+    () => groups.some((g) => g.lines.some((l) => (l.sku || l.description) && l.unit_price > 0)),
+    [groups],
+  );
+
+  useEffect(() => {
+    if (!hasPricedLine) {
+      setPreviewUrl(null);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setPreviewLoading(true);
+    const handle = setTimeout(async () => {
+      try {
+        const { blob } = await api.postBlob("/invoices/preview-pdf", buildPayload());
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setPreviewUrl(objectUrl);
+      } catch {
+        if (!cancelled) setPreviewUrl(null);
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [buildPayload, hasPricedLine]);
 
   function updateGroup(gid: number, patch: Partial<Group>) {
     setGroups((gs) => gs.map((g) => (g.id === gid ? { ...g, ...patch } : g)));
@@ -119,9 +166,11 @@ export default function NewInvoicePage() {
   }
 
   return (
-    <div className="space-y-4 max-w-2xl">
+    <div className="space-y-4">
       <h1 className="text-xl font-semibold">{t("new")}</h1>
 
+      <div className="flex flex-col gap-6 xl:flex-row xl:items-start">
+        <div className="w-full space-y-4 xl:max-w-2xl xl:shrink-0">
       <div className="flex gap-2">
         {(["service", "import"] as const).map((v) => (
           <button
@@ -277,9 +326,37 @@ export default function NewInvoicePage() {
           />
         </Field>
 
-        <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-          <span className="text-sm text-slate-500">{t("totalRevenue")}</span>
-          <span className="font-semibold">{formatVnd(totals.revenue)}</span>
+        <div className="space-y-2 border-t border-slate-100 pt-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-500">{t("totalRevenue")}</span>
+            <span className="font-medium">{formatVnd(totals.revenue)}</span>
+          </div>
+          {type === "service" && (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm text-slate-500">{t("discount")}</span>
+                <input
+                  inputMode="numeric"
+                  value={discount || ""}
+                  onChange={(e) => setDiscount(parseVnd(e.target.value) ?? 0)}
+                  className="w-36 rounded-md border border-slate-300 px-3 py-1.5 text-right"
+                />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm text-slate-500">{t("deposit")}</span>
+                <input
+                  inputMode="numeric"
+                  value={deposit || ""}
+                  onChange={(e) => setDeposit(parseVnd(e.target.value) ?? 0)}
+                  className="w-36 rounded-md border border-slate-300 px-3 py-1.5 text-right"
+                />
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-100 pt-2">
+                <span className="text-sm font-medium text-slate-700">{t("amountDue")}</span>
+                <span className="text-lg font-semibold">{formatVnd(totals.amountDue)}</span>
+              </div>
+            </>
+          )}
         </div>
 
         {create.isError && (
@@ -304,6 +381,35 @@ export default function NewInvoicePage() {
           >
             {t("submit")}
           </button>
+        </div>
+      </div>
+        </div>
+
+        {/* Live preview — uses the empty space on wide screens. */}
+        <div className="hidden flex-1 xl:block">
+          <div className="sticky top-20">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                {t("preview")}
+              </span>
+              {previewLoading && (
+                <span className="text-xs text-slate-400">{t("previewUpdating")}</span>
+              )}
+            </div>
+            <div className="h-[80vh] overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm">
+              {previewUrl ? (
+                <iframe
+                  title="invoice-preview"
+                  src={`${previewUrl}#toolbar=0&navpanes=0&view=FitH`}
+                  className="h-full w-full"
+                />
+              ) : (
+                <div className="grid h-full place-items-center px-6 text-center text-sm text-slate-400">
+                  {t("previewEmpty")}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

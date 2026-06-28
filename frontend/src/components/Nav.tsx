@@ -17,6 +17,7 @@ const items = [
   { href: "/customers", key: "customers" as const },
   { href: "/suppliers", key: "suppliers" as const },
   { href: "/reports", key: "reports" as const },
+  { href: "/settings", key: "settings" as const },
 ];
 
 export function Nav() {

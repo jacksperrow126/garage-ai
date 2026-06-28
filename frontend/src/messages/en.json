@@ -10,6 +10,7 @@
     "customers": "Customers",
     "suppliers": "Suppliers",
     "reports": "Reports",
+    "settings": "Settings",
     "logout": "Sign out"
   },
   "auth": {
@@ -72,7 +73,13 @@
     "adjustments": "Adjustments",
     "downloadPdf": "Download PDF",
     "downloadPdfPreparing": "Generating PDF...",
-    "downloadPdfFailed": "Failed to generate PDF"
+    "downloadPdfFailed": "Failed to generate PDF",
+    "discount": "Discount",
+    "deposit": "Deposit (paid)",
+    "amountDue": "Amount due",
+    "preview": "Preview",
+    "previewUpdating": "Updating…",
+    "previewEmpty": "Add a priced line to preview the invoice."
   },
   "customers": {
     "title": "Customers",
@@ -111,6 +118,29 @@
     "linkExpired": "Link expired. Ask the bot in Zalo for a new upload link.",
     "fileTooLarge": "File too big (max 10MB).",
     "unsupportedType": "Unsupported file. Only image, PDF, or text accepted."
+  },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Information shown on the printed invoice.",
+    "headerSection": "Shop info",
+    "bankSection": "Bank account",
+    "servicesSection": "Services (printed on invoice)",
+    "orgName": "Shop name",
+    "taxId": "Tax ID",
+    "address": "Address",
+    "phone": "Hotline",
+    "bankName": "Bank",
+    "bankAccount": "Account number",
+    "bankHolder": "Account holder",
+    "uploadLogo": "Upload logo",
+    "removeLogo": "Remove logo",
+    "noLogo": "No logo",
+    "logoHint": "PNG/JPG, auto-resized to 400px.",
+    "logoError": "Invalid image.",
+    "servicesHint": "One service per line (max 12 lines).",
+    "servicesPlaceholder": "Engine – Chassis – Auto electrics\nBodywork – Paint – Accident repair\nCar wash – Interior cleaning",
+    "save": "Save",
+    "saved": "Saved."
   },
   "common": {
     "loading": "Loading...",

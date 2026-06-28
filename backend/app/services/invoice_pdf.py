@@ -11,18 +11,21 @@ intentionally never read — those stay internal-only."""
 
 from __future__ import annotations
 
+import base64
 import io
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A5
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
+    HRFlowable,
+    Image,
     KeepTogether,
     Paragraph,
     SimpleDocTemplate,
@@ -30,6 +33,11 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+
+# Standard VAT rate for goods/services in VN. Prices stored here are
+# VAT-inclusive (gross), so the net + VAT shown on the receipt is derived
+# from the gross total — purely informational, not a legal e-invoice.
+_VAT_RATE = 0.10
 
 _FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 _FONTS_REGISTERED = False
@@ -83,6 +91,27 @@ def _humanize_creator(created_by: str | None, creator_name: str | None) -> str |
     return created_by
 
 
+def _logo_flowable(logo: str | None, max_w: float, max_h: float) -> Image | None:
+    """Decode a `data:image/*;base64,…` URI into a reportlab Image scaled to
+    fit within max_w by max_h (preserving aspect). Returns None on any decode
+    error so a malformed logo degrades to "no logo" rather than failing the PDF."""
+    if not logo or "," not in logo:
+        return None
+    try:
+        raw = base64.b64decode(logo.split(",", 1)[1])
+        img = Image(io.BytesIO(raw))
+        iw, ih = float(img.imageWidth), float(img.imageHeight)
+        if iw <= 0 or ih <= 0:
+            return None
+        scale = min(max_w / iw, max_h / ih)
+        img.drawWidth = iw * scale
+        img.drawHeight = ih * scale
+        img.hAlign = "RIGHT"
+        return img
+    except Exception:
+        return None
+
+
 def _vehicle_lines(vehicle: dict[str, Any]) -> list[str]:
     """Render a vehicle dict into 1-3 display lines, omitting empty fields."""
     lines: list[str] = []
@@ -111,7 +140,7 @@ def render_invoice_pdf(
     supplier: dict[str, Any] | None = None,
     creator_name: str | None = None,
 ) -> bytes:
-    """Build a customer-facing invoice PDF (A5 portrait).
+    """Build a customer-facing invoice PDF (A4 portrait).
 
     Internal-only fields (cost_price, profit) are deliberately omitted —
     the customer should never see margin info.
@@ -120,7 +149,11 @@ def render_invoice_pdf(
       - customer: dict with name/phone/vehicles/note. If present, the
         customer block shows phone + the first vehicle's plate/make/model.
       - supplier: dict with name/phone/address (for import invoices).
-      - creator_name: human-readable name for the invoice author."""
+      - creator_name: human-readable name for the invoice author.
+
+    The org header can carry a logo (base64 data-URI), bank details
+    (bank_name/bank_account/bank_holder) and a services checklist
+    (`services` list) — all optional, rendered only when present."""
     _ensure_fonts()
 
     is_import = invoice.get("type") == "import"
@@ -128,16 +161,17 @@ def render_invoice_pdf(
     title = "PHIẾU NHẬP KHO" if is_import else "HÓA ĐƠN BÁN HÀNG"
 
     buf = io.BytesIO()
+    margin = 15 * mm
     doc = SimpleDocTemplate(
         buf,
-        pagesize=A5,
-        leftMargin=12 * mm,
-        rightMargin=12 * mm,
-        topMargin=10 * mm,
-        bottomMargin=10 * mm,
+        pagesize=A4,
+        leftMargin=margin,
+        rightMargin=margin,
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,
         title=f"Invoice {invoice.get('id', '')}",
     )
-    page_w = A5[0] - 24 * mm
+    page_w = A4[0] - 2 * margin
 
     base = ParagraphStyle(
         "base",
@@ -145,9 +179,6 @@ def render_invoice_pdf(
         fontName="Roboto",
         fontSize=9,
         leading=12,
-    )
-    org_name_style = ParagraphStyle(
-        "orgName", parent=base, fontName="Roboto-Bold", fontSize=15, alignment=1, spaceAfter=2
     )
     title_style = ParagraphStyle(
         "title", parent=base, fontName="Roboto-Bold", fontSize=13, alignment=1, spaceBefore=4, spaceAfter=2
@@ -182,19 +213,55 @@ def render_invoice_pdf(
 
     story: list[Any] = []
 
-    # ── Garage header ────────────────────────────────────────────────
-    story.append(Paragraph((org.get("name") or "—").upper(), org_name_style))
-    header_meta_parts: list[str] = []
-    if org.get("address"):
-        header_meta_parts.append(f"<b>Địa chỉ:</b> {org['address']}")
-    if org.get("phone"):
-        header_meta_parts.append(f"<b>SĐT:</b> {org['phone']}")
-    if org.get("tax_id"):
-        header_meta_parts.append(f"<b>MST:</b> {org['tax_id']}")
-    for line in header_meta_parts:
-        story.append(Paragraph(line, ParagraphStyle("h", parent=base, alignment=1, fontSize=8.5, leading=11)))
+    # ── Garage header: business info (left) + logo & services (right) ─
+    hdr_name = ParagraphStyle(
+        "hdrName", parent=base, fontName="Roboto-Bold", fontSize=16, leading=19
+    )
+    hdr_meta = ParagraphStyle("hdrMeta", parent=base, fontSize=8.5, leading=12)
+    svc_head = ParagraphStyle(
+        "svcHead", parent=base, fontName="Roboto-Bold", fontSize=9, leading=13, textColor=_ACCENT
+    )
+    svc_item = ParagraphStyle("svcItem", parent=base, fontSize=8.5, leading=12)
 
-    story.append(Spacer(1, 4))
+    left_hdr: list[Any] = [Paragraph((org.get("name") or "—").upper(), hdr_name)]
+    if org.get("tax_id"):
+        left_hdr.append(Paragraph(f"<b>MST:</b> {org['tax_id']}", hdr_meta))
+    if org.get("address"):
+        left_hdr.append(Paragraph(f"<b>Địa chỉ:</b> {org['address']}", hdr_meta))
+    if org.get("phone"):
+        left_hdr.append(Paragraph(f"<b>Hotline:</b> {org['phone']}", hdr_meta))
+    bank_fields = (("Ngân hàng", "bank_name"), ("Số TK", "bank_account"), ("Chủ TK", "bank_holder"))
+    for label, key in bank_fields:
+        if org.get(key):
+            left_hdr.append(Paragraph(f"<b>{label}:</b> {org[key]}", hdr_meta))
+
+    right_hdr: list[Any] = []
+    logo = _logo_flowable(org.get("logo"), max_w=page_w * 0.42, max_h=24 * mm)
+    if logo:
+        right_hdr.append(logo)
+        right_hdr.append(Spacer(1, 4))
+    services = [s for s in (org.get("services") or []) if str(s).strip()]
+    if services:
+        right_hdr.append(Paragraph("CHUYÊN SỬA CHỮA Ô TÔ CÁC LOẠI", svc_head))
+        for s in services:
+            right_hdr.append(Paragraph(f"• {s}", svc_item))
+
+    if right_hdr:
+        header_tbl = Table([[left_hdr, right_hdr]], colWidths=[page_w * 0.55, page_w * 0.45])
+    else:
+        header_tbl = Table([[left_hdr]], colWidths=[page_w])
+    header_tbl.setStyle(
+        TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ])
+    )
+    story.append(header_tbl)
+    story.append(Spacer(1, 6))
+    story.append(HRFlowable(width="100%", thickness=0.8, color=_ACCENT, spaceAfter=6))
 
     # ── Title + meta ─────────────────────────────────────────────────
     story.append(Paragraph(title, title_style))
@@ -347,38 +414,22 @@ def render_invoice_pdf(
     else:
         for i, item in enumerate(items, start=1):
             rows.append(_item_row(i, item))
-    # Total row — span label across the first 5 columns so it has room
-    # to render "TỔNG CỘNG" on one line, and the amount goes in the
-    # rightmost column on its own line.
-    rows.append([
-        Paragraph("<b>TỔNG CỘNG</b>", right),
-        "",
-        "",
-        "",
-        "",
-        Paragraph(f"<b>{_format_vnd(invoice.get('total_revenue'))}</b>", right),
-    ])
-
-    # Column widths sum to page_w (~124mm at A5 with 12mm margins).
-    # STT 10, Mã SP 24, Mô tả 44, SL 8, Đơn giá 18, Thành tiền 20.
-    col_widths = [10 * mm, 24 * mm, 44 * mm, 8 * mm, 18 * mm, 20 * mm]
+    # Column widths sum to page_w (180mm at A4 with 15mm margins).
+    # STT 12, Mã SP 26, Mô tả 74, SL 12, Đơn giá 26, Thành tiền 30.
+    col_widths = [12 * mm, 26 * mm, 74 * mm, 12 * mm, 26 * mm, 30 * mm]
     table = Table(rows, colWidths=col_widths, repeatRows=1)
     style_ops: list[Any] = [
         ("FONTNAME", (0, 0), (-1, -1), "Roboto"),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("BACKGROUND", (0, 0), (-1, 0), _BG_HEADER),
         ("LINEBELOW", (0, 0), (-1, 0), 0.6, _ACCENT),
-        ("LINEABOVE", (0, -1), (-1, -1), 0.6, _ACCENT),
-        ("BOX", (0, 0), (-1, -2), 0.4, _LINE),
-        ("INNERGRID", (0, 0), (-1, -2), 0.2, _LINE_LIGHT),
+        ("BOX", (0, 0), (-1, -1), 0.4, _LINE),
+        ("INNERGRID", (0, 0), (-1, -1), 0.2, _LINE_LIGHT),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (-1, -1), 3),
         ("RIGHTPADDING", (0, 0), (-1, -1), 3),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        # Span the total-row label across cols 0..4 so "TỔNG CỘNG"
-        # has room to render on one line.
-        ("SPAN", (0, -1), (4, -1)),
     ]
     # Category subheaders: span the full width and tint the background.
     for r in subheader_rows:
@@ -386,6 +437,65 @@ def render_invoice_pdf(
         style_ops.append(("BACKGROUND", (0, r), (-1, r), _LINE_LIGHT))
     table.setStyle(TableStyle(style_ops))
     story.append(table)
+
+    # ── Totals block (right-aligned) ─────────────────────────────────
+    # Prices are VAT-inclusive (gross): break VAT out of the gross subtotal
+    # so net + VAT = gross. Service invoices also subtract discount + deposit
+    # to reach the amount actually due (đưa trước = paid in advance).
+    story.append(Spacer(1, 8))
+    gross = int(invoice.get("total_revenue") or 0)
+    label_style = ParagraphStyle("totLbl", parent=base, alignment=2, fontSize=9, leading=13)
+    val_style = ParagraphStyle("totVal", parent=base, alignment=2, fontSize=9, leading=13)
+    grand_lbl = ParagraphStyle(
+        "grandLbl", parent=base, alignment=2, fontName="Roboto-Bold", fontSize=11, leading=15
+    )
+    grand_val = ParagraphStyle(
+        "grandVal", parent=base, alignment=2, fontName="Roboto-Bold", fontSize=11,
+        leading=15, textColor=_ACCENT,
+    )
+
+    def _tot_row(label: str, amount: str, *, grand: bool = False) -> list[Any]:
+        lbl = grand_lbl if grand else label_style
+        val = grand_val if grand else val_style
+        return [Paragraph(label, lbl), Paragraph(amount, val)]
+
+    tot_rows: list[list[Any]] = []
+    if is_import:
+        tot_rows.append(_tot_row("TỔNG CỘNG", _format_vnd(gross), grand=True))
+    else:
+        net = round(gross / (1 + _VAT_RATE))
+        vat = gross - net
+        discount = int(invoice.get("discount") or 0)
+        deposit = int(invoice.get("deposit") or 0)
+        amount_due = int(invoice.get("amount_due", gross - discount - deposit) or 0)
+        tot_rows.append(_tot_row("Cộng tiền hàng (chưa VAT)", _format_vnd(net)))
+        tot_rows.append(_tot_row("Thuế GTGT (10%)", _format_vnd(vat)))
+        tot_rows.append(_tot_row("Tổng tiền hàng", _format_vnd(gross)))
+        if discount:
+            tot_rows.append(_tot_row("Giảm giá", f"-{_format_vnd(discount)}"))
+        if deposit:
+            tot_rows.append(_tot_row("Đưa trước", f"-{_format_vnd(deposit)}"))
+        tot_rows.append(_tot_row("TỔNG THANH TOÁN", _format_vnd(amount_due), grand=True))
+
+    totals_inner = Table(tot_rows, colWidths=[page_w * 0.32, page_w * 0.23])
+    totals_inner.setStyle(
+        TableStyle([
+            ("LINEABOVE", (0, -1), (-1, -1), 0.6, _ACCENT),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, -1), (-1, -1), 4),
+        ])
+    )
+    # Push the totals block to the right by padding an empty left cell.
+    totals_wrap = Table([["", totals_inner]], colWidths=[page_w * 0.45, page_w * 0.55])
+    totals_wrap.setStyle(
+        TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ])
+    )
+    story.append(totals_wrap)
 
     # ── Notes ────────────────────────────────────────────────────────
     if invoice.get("notes"):

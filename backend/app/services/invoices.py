@@ -305,6 +305,9 @@ def create_service_invoice(
             )
 
         now = datetime.now(UTC)
+        # amount_due is the gross subtotal less any discount and advance payment;
+        # clamped at 0 so an over-large deposit never shows a negative total.
+        amount_due = max(0, total_revenue - data.discount - data.deposit)
         invoice_doc = {
             "type": "service",
             "status": "posted",
@@ -317,6 +320,9 @@ def create_service_invoice(
             "total_revenue": total_revenue,
             "total_cost": total_cost,
             "profit": total_revenue - total_cost,
+            "discount": data.discount,
+            "deposit": data.deposit,
+            "amount_due": amount_due,
             "notes": data.notes,
         }
         tx.set(invoice_ref, {**invoice_doc, "created_at": server_timestamp()})
@@ -340,6 +346,55 @@ def create_service_invoice(
         return {"id": invoice_ref.id, **invoice_doc, "created_at": now}
 
     return _tx(db.transaction())
+
+
+# ── Live preview (no persistence) ────────────────────────────────────────
+
+def build_preview(data: ImportInvoiceCreate | ServiceInvoiceCreate) -> dict[str, Any]:
+    """Turn an *unsaved* create payload into a renderable invoice dict for the
+    live PDF preview. Does no stock/cost lookups (so it never fails on an
+    unknown SKU) and no Firestore write. cost/profit are zeroed — they never
+    appear on the customer-facing PDF anyway."""
+    now = datetime.now(UTC)
+    is_import = data.type == "import"
+    lines: list[dict[str, Any]] = []
+    total_revenue = 0
+    for item in data.items:
+        sku = getattr(item, "sku", None)
+        line_rev = item.quantity * item.unit_price
+        total_revenue += line_rev
+        lines.append(
+            {
+                "product_id": sku,
+                "sku": sku,
+                "category": item.category,
+                "description": item.description or sku or "",
+                "quantity": item.quantity,
+                "unit_price": item.unit_price,
+                "cost_price": 0,
+                "line_total_revenue": line_rev,
+                "line_total_cost": 0,
+            }
+        )
+    discount = getattr(data, "discount", 0)
+    deposit = getattr(data, "deposit", 0)
+    return {
+        "id": "(nháp)",
+        "type": data.type,
+        "status": "posted",
+        "created_at": now,
+        "created_by": None,
+        "supplier_name": getattr(data, "supplier_name", None),
+        "customer_name": getattr(data, "customer_name", None),
+        "items": lines,
+        "total_revenue": total_revenue,
+        "total_cost": 0,
+        "profit": None if is_import else total_revenue,
+        "discount": discount,
+        "deposit": deposit,
+        "amount_due": max(0, total_revenue - discount - deposit),
+        "notes": data.notes,
+    }
 
 
 # ── Adjustments ─────────────────────────────────────────────────────────
