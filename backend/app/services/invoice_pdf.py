@@ -13,9 +13,14 @@ from __future__ import annotations
 
 import base64
 import io
-from datetime import datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+# Timestamps are stored UTC; the receipt shows shop-local time. Vietnam is
+# permanently UTC+7 (no DST), so a fixed offset is correct and avoids needing
+# system tz data in the slim Docker image.
+_ICT = timezone(timedelta(hours=7))
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -72,7 +77,10 @@ def _fmt_dt(value: Any) -> str:
         dt = value
     else:
         dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    return dt.strftime("%d/%m/%Y %H:%M")
+    # Treat naive timestamps as UTC, then render in Vietnam time (UTC+7).
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(_ICT).strftime("%d/%m/%Y %H:%M")
 
 
 def _humanize_creator(created_by: str | None, creator_name: str | None) -> str | None:

@@ -83,7 +83,6 @@ export default function InvoiceDetailPage() {
         <table className="w-full text-sm">
           <thead className="text-left text-slate-500">
             <tr>
-              <th className="p-2">SKU</th>
               <th className="p-2">{t("description")}</th>
               <th className="p-2 text-right">Qty</th>
               <th className="p-2 text-right">Unit</th>
@@ -96,14 +95,13 @@ export default function InvoiceDetailPage() {
               <Fragment key={label || "_"}>
                 {label && (
                   <tr className="border-t border-slate-200 bg-slate-50">
-                    <td colSpan={6} className="p-2 font-medium text-slate-700">
+                    <td colSpan={5} className="p-2 font-medium text-slate-700">
                       {label}
                     </td>
                   </tr>
                 )}
                 {items.map((it, i) => (
                   <tr key={`${label}-${i}`} className="border-t border-slate-100">
-                    <td className="p-2 font-mono text-xs">{it.sku ?? "—"}</td>
                     <td className="p-2">{it.description}</td>
                     <td className="p-2 text-right">{it.quantity}</td>
                     <td className="p-2 text-right">{formatVnd(it.unit_price)}</td>
@@ -118,7 +116,7 @@ export default function InvoiceDetailPage() {
           </tbody>
           <tfoot className="border-t border-slate-200">
             <tr>
-              <td colSpan={5} className="p-2 text-right text-slate-500">
+              <td colSpan={4} className="p-2 text-right text-slate-500">
                 {t("totalRevenue")}
               </td>
               <td className="p-2 text-right font-medium">
@@ -126,7 +124,7 @@ export default function InvoiceDetailPage() {
               </td>
             </tr>
             <tr>
-              <td colSpan={5} className="p-2 text-right text-slate-500">
+              <td colSpan={4} className="p-2 text-right text-slate-500">
                 {t("totalCost")}
               </td>
               <td className="p-2 text-right text-slate-500">
@@ -134,7 +132,7 @@ export default function InvoiceDetailPage() {
               </td>
             </tr>
             <tr>
-              <td colSpan={5} className="p-2 text-right">
+              <td colSpan={4} className="p-2 text-right">
                 {t("profit")}
               </td>
               <td className="p-2 text-right font-semibold">{formatVnd(inv.profit)}</td>
