@@ -3,7 +3,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
 import { formatVnd, parseVnd } from "@/lib/format";
@@ -11,50 +11,62 @@ import { formatVnd, parseVnd } from "@/lib/format";
 type Line = {
   sku?: string;
   description?: string;
-  category?: string;
   quantity: number;
   unit_price: number;
 };
 
+// A category groups one or more lines. The grouping lives only in the form;
+// at submit time each line is flattened to a flat invoice item carrying its
+// group's name as `category` (empty name → ungrouped).
+type Group = {
+  id: number;
+  name: string;
+  lines: Line[];
+};
+
 type InvoiceType = "import" | "service";
+
+const newLine = (labor = false): Line =>
+  labor ? { description: "", quantity: 1, unit_price: 0 } : { sku: "", quantity: 1, unit_price: 0 };
 
 export default function NewInvoicePage() {
   const t = useTranslations("invoices");
   const tc = useTranslations("common");
   const router = useRouter();
+  const nextId = useRef(1);
   const [type, setType] = useState<InvoiceType>("service");
   const [customerName, setCustomerName] = useState("");
   const [supplierName, setSupplierName] = useState("");
   const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<Line[]>([
-    { sku: "", quantity: 1, unit_price: 0 },
+  const [groups, setGroups] = useState<Group[]>([
+    { id: 0, name: "", lines: [newLine()] },
   ]);
 
   const totals = useMemo(() => {
-    const revenue = lines.reduce((s, l) => s + l.quantity * l.unit_price, 0);
+    const revenue = groups.reduce(
+      (s, g) => s + g.lines.reduce((ls, l) => ls + l.quantity * l.unit_price, 0),
+      0,
+    );
     return { revenue };
-  }, [lines]);
-
-  // Categories already typed on this invoice — offered as autocomplete so the
-  // user reuses one consistent label instead of retyping ("Phụ tùng" twice).
-  const usedCategories = useMemo(
-    () => [...new Set(lines.map((l) => l.category?.trim()).filter(Boolean))] as string[],
-    [lines],
-  );
+  }, [groups]);
 
   const create = useMutation<{ id: string }>({
     mutationFn: () => {
+      // Flatten groups → flat items, tagging each with its group's category.
+      const items = groups.flatMap((g) =>
+        g.lines.map((l) => ({ line: l, category: g.name.trim() || undefined })),
+      );
       if (type === "import") {
         return api.post<{ id: string }>("/invoices", {
           type: "import",
           supplier_name: supplierName || null,
-          items: lines
-            .filter((l) => l.sku)
-            .map((l) => ({
-              sku: l.sku!,
-              category: l.category?.trim() || undefined,
-              quantity: l.quantity,
-              unit_price: l.unit_price,
+          items: items
+            .filter(({ line }) => line.sku)
+            .map(({ line, category }) => ({
+              sku: line.sku!,
+              category,
+              quantity: line.quantity,
+              unit_price: line.unit_price,
             })),
           notes,
         });
@@ -62,12 +74,12 @@ export default function NewInvoicePage() {
       return api.post<{ id: string }>("/invoices", {
         type: "service",
         customer_name: customerName || null,
-        items: lines.map((l) => ({
-          sku: l.sku || undefined,
-          description: l.description || undefined,
-          category: l.category?.trim() || undefined,
-          quantity: l.quantity,
-          unit_price: l.unit_price,
+        items: items.map(({ line, category }) => ({
+          sku: line.sku || undefined,
+          description: line.description || undefined,
+          category,
+          quantity: line.quantity,
+          unit_price: line.unit_price,
         })),
         notes,
       });
@@ -75,11 +87,35 @@ export default function NewInvoicePage() {
     onSuccess: (inv) => router.replace(`/invoices/${inv.id}`),
   });
 
-  function updateLine(idx: number, patch: Partial<Line>) {
-    setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  function updateGroup(gid: number, patch: Partial<Group>) {
+    setGroups((gs) => gs.map((g) => (g.id === gid ? { ...g, ...patch } : g)));
   }
-  function removeLine(idx: number) {
-    setLines((ls) => ls.filter((_, i) => i !== idx));
+  function addGroup() {
+    setGroups((gs) => [...gs, { id: nextId.current++, name: "", lines: [newLine()] }]);
+  }
+  function removeGroup(gid: number) {
+    setGroups((gs) => gs.filter((g) => g.id !== gid));
+  }
+  function addLine(gid: number, labor = false) {
+    setGroups((gs) =>
+      gs.map((g) => (g.id === gid ? { ...g, lines: [...g.lines, newLine(labor)] } : g)),
+    );
+  }
+  function updateLine(gid: number, idx: number, patch: Partial<Line>) {
+    setGroups((gs) =>
+      gs.map((g) =>
+        g.id === gid
+          ? { ...g, lines: g.lines.map((l, i) => (i === idx ? { ...l, ...patch } : l)) }
+          : g,
+      ),
+    );
+  }
+  function removeLine(gid: number, idx: number) {
+    setGroups((gs) =>
+      gs.map((g) =>
+        g.id === gid ? { ...g, lines: g.lines.filter((_, i) => i !== idx) } : g,
+      ),
+    );
   }
 
   return (
@@ -91,7 +127,7 @@ export default function NewInvoicePage() {
           <button
             key={v}
             onClick={() => setType(v)}
-            className={`flex-1 py-2 rounded-lg border ${
+            className={`flex-1 py-2 rounded-lg border cursor-pointer ${
               type === v
                 ? "bg-slate-900 text-white border-slate-900"
                 : "bg-white border-slate-200"
@@ -121,92 +157,115 @@ export default function NewInvoicePage() {
           </Field>
         )}
 
-        <div className="space-y-2">
-          <datalist id="invoice-categories">
-            {usedCategories.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
-          {lines.map((line, i) => (
-            <div key={i} className="flex flex-wrap gap-2 items-end">
-              <div className="flex-1 min-w-[140px]">
-                <div className="text-xs text-slate-500 mb-1">{t("description")} / SKU</div>
+        <div className="space-y-3">
+          {groups.map((group) => (
+            <div key={group.id} className="rounded-lg border border-slate-200">
+              {/* Category header */}
+              <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
+                <span className="text-xs font-medium text-slate-500 whitespace-nowrap">
+                  {t("category")}
+                </span>
                 <input
-                  value={line.sku || line.description || ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (/^[A-Z0-9\-_]+$/.test(v.toUpperCase()) && v.length <= 40) {
-                      updateLine(i, { sku: v.toUpperCase(), description: undefined });
-                    } else {
-                      updateLine(i, { description: v, sku: undefined });
-                    }
-                  }}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2"
-                />
-              </div>
-              <div className="w-32">
-                <div className="text-xs text-slate-500 mb-1">{t("category")}</div>
-                <input
-                  list="invoice-categories"
-                  value={line.category || ""}
-                  onChange={(e) => updateLine(i, { category: e.target.value })}
+                  value={group.name}
+                  onChange={(e) => updateGroup(group.id, { name: e.target.value })}
                   placeholder={t("categoryPlaceholder")}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2"
+                  className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm"
                 />
+                {groups.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeGroup(group.id)}
+                    className="cursor-pointer px-2 py-1 text-slate-400 hover:text-red-600"
+                    aria-label="remove category"
+                  >
+                    ×
+                  </button>
+                )}
               </div>
-              <div className="w-20">
-                <div className="text-xs text-slate-500 mb-1">{t("quantity")}</div>
-                <input
-                  type="number"
-                  min={1}
-                  value={line.quantity}
-                  onChange={(e) => updateLine(i, { quantity: Math.max(1, Number(e.target.value)) })}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2"
-                />
+
+              {/* Lines */}
+              <div className="space-y-2 p-3">
+                {group.lines.map((line, i) => (
+                  <div key={i} className="flex flex-wrap items-end gap-2">
+                    <div className="min-w-[140px] flex-1">
+                      <div className="mb-1 text-xs text-slate-500">{t("description")} / SKU</div>
+                      <input
+                        value={line.sku || line.description || ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (/^[A-Z0-9\-_]+$/.test(v.toUpperCase()) && v.length <= 40) {
+                            updateLine(group.id, i, { sku: v.toUpperCase(), description: undefined });
+                          } else {
+                            updateLine(group.id, i, { description: v, sku: undefined });
+                          }
+                        }}
+                        className="w-full rounded-md border border-slate-300 px-3 py-2"
+                      />
+                    </div>
+                    <div className="w-20">
+                      <div className="mb-1 text-xs text-slate-500">{t("quantity")}</div>
+                      <input
+                        type="number"
+                        min={1}
+                        value={line.quantity}
+                        onChange={(e) =>
+                          updateLine(group.id, i, { quantity: Math.max(1, Number(e.target.value)) })
+                        }
+                        className="w-full rounded-md border border-slate-300 px-3 py-2"
+                      />
+                    </div>
+                    <div className="w-36">
+                      <div className="mb-1 text-xs text-slate-500">{t("unitPrice")}</div>
+                      <input
+                        inputMode="numeric"
+                        value={line.unit_price || ""}
+                        onChange={(e) =>
+                          updateLine(group.id, i, { unit_price: parseVnd(e.target.value) ?? 0 })
+                        }
+                        className="w-full rounded-md border border-slate-300 px-3 py-2"
+                      />
+                    </div>
+                    {group.lines.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeLine(group.id, i)}
+                        className="cursor-pointer px-2 py-2 text-slate-400 hover:text-red-600"
+                        aria-label="remove line"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <div className="flex gap-2 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => addLine(group.id)}
+                    className="cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 hover:bg-slate-50"
+                  >
+                    {t("addItem")}
+                  </button>
+                  {type === "service" && (
+                    <button
+                      type="button"
+                      onClick={() => addLine(group.id, true)}
+                      className="cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 hover:bg-slate-50"
+                    >
+                      {t("addLabor")}
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="w-36">
-                <div className="text-xs text-slate-500 mb-1">{t("unitPrice")}</div>
-                <input
-                  inputMode="numeric"
-                  value={line.unit_price || ""}
-                  onChange={(e) =>
-                    updateLine(i, { unit_price: parseVnd(e.target.value) ?? 0 })
-                  }
-                  className="w-full rounded-md border border-slate-300 px-3 py-2"
-                />
-              </div>
-              {lines.length > 1 && (
-                <button
-                  onClick={() => removeLine(i)}
-                  className="text-slate-400 hover:text-red-600 px-2 py-2"
-                  aria-label="remove line"
-                >
-                  ×
-                </button>
-              )}
             </div>
           ))}
-          <div className="flex gap-2 text-sm">
-            <button
-              onClick={() => setLines((l) => [...l, { sku: "", quantity: 1, unit_price: 0 }])}
-              className="rounded-md border border-slate-300 px-3 py-1.5"
-            >
-              {t("addItem")}
-            </button>
-            {type === "service" && (
-              <button
-                onClick={() =>
-                  setLines((l) => [
-                    ...l,
-                    { description: "", quantity: 1, unit_price: 0 },
-                  ])
-                }
-                className="rounded-md border border-slate-300 px-3 py-1.5"
-              >
-                {t("addLabor")}
-              </button>
-            )}
-          </div>
+
+          <button
+            type="button"
+            onClick={addGroup}
+            className="w-full cursor-pointer rounded-lg border border-dashed border-slate-300 py-2 text-sm font-medium text-slate-600 hover:border-slate-400 hover:bg-slate-50"
+          >
+            + {t("addCategory")}
+          </button>
         </div>
 
         <Field label={t("notes")}>
@@ -231,7 +290,7 @@ export default function NewInvoicePage() {
           <button
             type="button"
             onClick={() => router.back()}
-            className="flex-1 rounded-md border border-slate-300 py-2"
+            className="flex-1 cursor-pointer rounded-md border border-slate-300 py-2"
           >
             {tc("cancel")}
           </button>
@@ -241,7 +300,7 @@ export default function NewInvoicePage() {
             onClick={() => {
               if (confirm(t("confirmCreate"))) create.mutate();
             }}
-            className="flex-1 rounded-md bg-slate-900 text-white py-2 disabled:opacity-50"
+            className="flex-1 cursor-pointer rounded-md bg-slate-900 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             {t("submit")}
           </button>
