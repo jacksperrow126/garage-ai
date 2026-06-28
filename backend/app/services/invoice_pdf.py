@@ -221,11 +221,9 @@ def render_invoice_pdf(
 
     story: list[Any] = []
 
-    # ── Garage header: logo (left) · services (center) · business info (right) ─
-    svc_item = ParagraphStyle("svcItem", parent=base, fontSize=8.5, leading=13)
-
+    # ── Garage header: logo (left) + business info (right), services strip below ─
     def _info_block(align: int) -> list[Any]:
-        """Business name + details, aligned left (standalone) or right (3-col)."""
+        """Business name + details, aligned left (standalone) or right (with logo)."""
         name_style = ParagraphStyle(
             "hdrName", parent=base, fontName="Roboto-Bold", fontSize=16, leading=19, alignment=align
         )
@@ -241,18 +239,14 @@ def render_invoice_pdf(
             block.append(Paragraph(f"<b>Hotline:</b> {org['phone']}", meta_style))
         return block
 
-    logo = _logo_flowable(org.get("logo"), max_w=page_w * 0.22, max_h=26 * mm)
+    logo = _logo_flowable(org.get("logo"), max_w=page_w * 0.30, max_h=26 * mm)
     if logo:
         logo.hAlign = "LEFT"
-    services = [s for s in (org.get("services") or []) if str(s).strip()]
-    svc_col: list[Any] = [Paragraph(f"• {s}", svc_item) for s in services]
 
-    if logo or services:
-        # 3 columns: logo (left) · services (center) · name + info (right).
-        header_tbl = Table(
-            [[logo or "", svc_col, _info_block(2)]],
-            colWidths=[page_w * 0.24, page_w * 0.36, page_w * 0.40],
-        )
+    # Top row: logo (left) + name & details (right). Without a logo the info
+    # block goes full-width, left-aligned.
+    if logo:
+        header_tbl = Table([[logo, _info_block(2)]], colWidths=[page_w * 0.34, page_w * 0.66])
     else:
         header_tbl = Table([[_info_block(0)]], colWidths=[page_w])
     header_tbl.setStyle(
@@ -265,6 +259,20 @@ def render_invoice_pdf(
         ])
     )
     story.append(header_tbl)
+
+    # Services as a single horizontal strip below — compact, doesn't eat a column.
+    services = [s for s in (org.get("services") or []) if str(s).strip()]
+    if services:
+        story.append(Spacer(1, 5))
+        story.append(
+            Paragraph(
+                "  •  ".join(services),
+                ParagraphStyle(
+                    "svcStrip", parent=base, fontSize=9, leading=12, alignment=1, textColor=_ACCENT
+                ),
+            )
+        )
+
     story.append(Spacer(1, 6))
     story.append(HRFlowable(width="100%", thickness=0.8, color=_ACCENT, spaceAfter=6))
 
@@ -330,11 +338,14 @@ def render_invoice_pdf(
         inv_odo = invoice.get("odometer")
         vehicles = (customer or {}).get("vehicles") or []
         if inv_make or inv_odo:
+            # Make + odometer on one line so the XE block matches the height of
+            # the customer block (label + a single content line).
+            parts = []
             if inv_make:
-                right_lines.append(Paragraph(inv_make, plate_style))
+                parts.append(inv_make)
             if inv_odo:
-                km = f"{int(inv_odo):,}".replace(",", ".")
-                right_lines.append(Paragraph(f"Số km: {km} km", base))
+                parts.append(f"{int(inv_odo):,}".replace(",", ".") + " km")
+            right_lines.append(Paragraph(" · ".join(parts), party_name_style))
         elif vehicles:
             v = vehicles[0]
             v_lines = _vehicle_lines(v)
